@@ -15,13 +15,11 @@
         </div>
         <div class="topbar-actions">
           <button id="refreshButton" type="button">刷新</button>
-          <a id="bookTranslationsZip" class="button-link muted" href="#" aria-disabled="true">整本译文 ZIP</a>
-          <a id="bookAudioZip" class="button-link muted" href="#" aria-disabled="true">整本音频 ZIP</a>
         </div>
       </header>
 
       <main class="workspace">
-        <aside class="settings-panel" aria-label="全局设置">
+        <aside class="settings-panel" aria-label="书籍与设置">
           <section class="section-block">
             <h2>导入</h2>
             <form id="uploadForm" class="upload-form">
@@ -33,7 +31,19 @@
           </section>
 
           <section class="section-block">
-            <h2>清理</h2>
+            <h2>流程</h2>
+            <ol class="workflow-steps" aria-label="单本书处理流程">
+              <li>导入</li>
+              <li>清理</li>
+              <li>拆章</li>
+              <li>翻译</li>
+              <li>转音频</li>
+              <li>下载</li>
+            </ol>
+          </section>
+
+          <section class="section-block">
+            <h2>文本清理</h2>
             <div class="button-stack">
               <button type="button" data-clean-operation="remove_watermarks">去除文章水印</button>
               <button type="button" data-clean-operation="normalize_spacing">去除文章多余空格等字符</button>
@@ -54,29 +64,18 @@
           <section class="section-block">
             <h2>章节</h2>
             <button id="splitButton" type="button">按章节分成多个txt</button>
-            <div id="splitJob" class="job-slot"></div>
           </section>
 
           <section class="section-block">
-            <h2>翻译设置</h2>
-            <label>Provider <input id="translationProvider" value="default" /></label>
-            <label>API Key <input id="translationApiKey" type="password" autocomplete="off" /></label>
+            <h2>翻译与语音</h2>
             <label>翻译提示词 <input id="translationPrompt" value="将文章翻译为中文" /></label>
             <label>并行段数 <input id="translationParallel" type="number" min="1" placeholder="后端默认" /></label>
             <label>上下文提示 <textarea id="translationContext" rows="3" placeholder="保留术语、风格或背景要求"></textarea></label>
-          </section>
-
-          <section class="section-block">
-            <h2>TTS 设置</h2>
-            <label>Provider <input id="ttsProvider" value="mimo" /></label>
-            <label>API Key <input id="ttsApiKey" type="password" autocomplete="off" /></label>
-            <label>Base URL <input id="ttsBaseUrl" placeholder="可选" /></label>
-            <label>Model <input id="ttsModel" placeholder="可选" /></label>
             <label>音色
               <select id="ttsVoice"></select>
             </label>
-            <label>并行段数 <input id="ttsParallel" type="number" min="1" value="1" /></label>
-            <label>上下文提示 <textarea id="ttsContext" rows="4" placeholder="旁白风格、角色语气、作品背景或通用上下文"></textarea></label>
+            <label>转音频并行段数 <input id="ttsParallel" type="number" min="1" value="1" /></label>
+            <label>语音上下文 <textarea id="ttsContext" rows="4" placeholder="旁白风格、角色语气、作品背景或通用上下文"></textarea></label>
             <label>文本来源
               <select id="ttsSource">
                 <option value="chapter">原文章节</option>
@@ -87,19 +86,45 @@
               <input id="mergeAudio" type="checkbox" checked />
               生成后自动合并音频
             </label>
+            <details class="advanced-settings">
+              <summary>高级接口设置</summary>
+              <label>翻译 Provider <input id="translationProvider" value="default" /></label>
+              <label>翻译 API Key <input id="translationApiKey" type="password" autocomplete="off" /></label>
+              <label>TTS Provider <input id="ttsProvider" value="mimo" /></label>
+              <label>TTS API Key <input id="ttsApiKey" type="password" autocomplete="off" /></label>
+              <label>TTS Base URL <input id="ttsBaseUrl" placeholder="可选" /></label>
+              <label>TTS Model <input id="ttsModel" placeholder="可选" /></label>
+            </details>
           </section>
         </aside>
 
         <section class="main-panel" aria-label="章节工作区">
           <div class="panel-heading">
             <div>
-              <h2>章节列表</h2>
-              <p id="chapterSummary">导入并拆分后显示每章 TXT、译文和音频状态。</p>
+              <h2>章节工作台</h2>
+              <p id="chapterSummary">导入并拆分后显示每章状态、操作和音频。</p>
             </div>
-            <div id="jobBoard" class="job-board"></div>
+            <div class="text-preview-actions" aria-label="文本预览">
+              <button type="button" data-book-preview="current">当前文本</button>
+              <button type="button" data-book-preview="full">完整文本</button>
+              <button type="button" data-book-preview="cleaned">清理后文本</button>
+            </div>
           </div>
           <div id="chapters" class="chapter-list"></div>
         </section>
+
+        <aside class="activity-panel" aria-label="任务与下载">
+          <section class="section-block download-hub">
+            <h2>下载</h2>
+            <a id="bookTranslationsZip" class="button-link muted" href="#" aria-disabled="true">整本译文 ZIP</a>
+            <a id="bookAudioZip" class="button-link muted" href="#" aria-disabled="true">整本音频 ZIP</a>
+          </section>
+          <section class="section-block task-queue">
+            <h2>任务队列</h2>
+            <div id="jobBoard" class="job-board"></div>
+            <div id="splitJob" class="job-board"></div>
+          </section>
+        </aside>
       </main>
     </div>
 

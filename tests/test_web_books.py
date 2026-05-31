@@ -193,6 +193,10 @@ def test_static_ui_includes_clean_preview_dialog_and_controls(tmp_path: Path):
     assert 'id="previewCleanedText"' in response.text
     assert 'id="bookTextDialog"' in response.text
     assert 'id="bookPreviewText"' in response.text
+    assert 'class="workflow-steps"' in response.text
+    assert 'class="activity-panel"' in response.text
+    assert "download-hub" in response.text
+    assert "advanced-settings" in response.text
 
 
 def test_config_endpoint_exposes_mimo_voice_presets_and_safe_default(tmp_path: Path):

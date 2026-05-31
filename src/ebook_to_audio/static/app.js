@@ -455,10 +455,12 @@
         <div>
           <h3 class="chapter-title">${escapeHtml(chapter.title || `第 ${chapter.chapter_index + 1} 章`)}</h3>
           <p class="chapter-subtitle">
-            ${formatCount(chapter.char_count)} 字符 · ${wordCountLabel(chapter)} · ${formatCount(chapter.paragraph_count)} 段落 ·
-            译文 ${chapter.translation_path ? "已生成" : "未生成"} ·
-            音频 ${hasAudio ? "已生成" : "未生成"}
+            ${formatCount(chapter.char_count)} 字符 · ${wordCountLabel(chapter)} · ${formatCount(chapter.paragraph_count)} 段落
           </p>
+          <div class="status-strip">
+            <span class="status-pill ${chapter.translation_path ? "is-complete" : ""}">译文 ${chapter.translation_path ? "已生成" : "未生成"}</span>
+            <span class="status-pill ${hasAudio ? "is-complete" : ""}">音频 ${hasAudio ? "已生成" : "未生成"}</span>
+          </div>
         </div>
         <div class="chapter-actions">
           <button type="button" data-view="${chapter.id}">查看</button>
@@ -483,11 +485,8 @@
         }
         ${hasAudio ? `<a class="button-link" href="/api/chapters/${chapter.id}/audio/download.zip">音频 ZIP</a>` : ""}
       </div>
-      <div class="audio-segments">${renderSegmentLinks(chapter.id, audio)}</div>
-      <div class="job-slot">
-        ${translationJob ? jobMarkup(translationJob) : ""}
-        ${ttsJob ? jobMarkup(ttsJob) : ""}
-      </div>
+      ${renderChapterAudioPanel(chapter, audio)}
+      <div class="job-slot chapter-job-slot">${chapterJobsMarkup([translationJob, ttsJob])}</div>
     `;
     return card;
   }
@@ -512,6 +511,32 @@
       .join("");
   }
 
+  function renderChapterAudioPanel(chapter, audio) {
+    const segments = audio && Array.isArray(audio.segments) ? audio.segments : [];
+    const mergedUrl = audio && audio.download_url ? audio.download_url : null;
+    const hasMergedAudio = Boolean(chapter && chapter.audio_path && mergedUrl);
+    if (!hasMergedAudio && !segments.length) {
+      return "";
+    }
+    const mergedMarkup = hasMergedAudio
+      ? `<div class="chapter-audio-player">
+          <div>
+            <strong>合并音频</strong>
+            <p class="meta">优先试听整章音频</p>
+          </div>
+          <audio controls preload="none" src="${escapeHtml(mergedUrl)}"></audio>
+          <a class="button-link" href="${escapeHtml(mergedUrl)}">下载 WAV</a>
+        </div>`
+      : "";
+    const segmentMarkup = segments.length
+      ? `<details class="segment-details">
+          <summary>查看片段音频 (${segments.length})</summary>
+          <div class="audio-segments">${renderSegmentLinks(chapter.id, audio)}</div>
+        </details>`
+      : "";
+    return `<div class="chapter-audio-panel">${mergedMarkup}${segmentMarkup}</div>`;
+  }
+
   function latestJobForChapter(chapterId, kind) {
     return Array.from(state.jobs.values())
       .filter((job) => job.chapter_id === chapterId && job.kind === kind)
@@ -530,13 +555,30 @@
         <div class="meta">${formatCount(job.completed_units)} / ${formatCount(job.total_units)} 完成${
           job.failed_units ? ` · ${formatCount(job.failed_units)} 失败` : ""
         }${job.error_message ? ` · ${escapeHtml(job.error_message)}` : ""}</div>
-        <div class="job-actions">
-          <button type="button" data-job-action="pause" data-job-id="${job.id}">暂停</button>
-          <button type="button" data-job-action="resume" data-job-id="${job.id}">继续</button>
-          <button type="button" data-job-action="stop" data-job-id="${job.id}" class="danger">停止</button>
-        </div>
+        ${jobActionMarkup(job)}
       </div>
     `;
+  }
+
+  function jobActionMarkup(job) {
+    if (!job || terminalStatuses.has(job.status)) {
+      return "";
+    }
+    const actions =
+      job.status === "paused"
+        ? `<button type="button" data-job-action="resume" data-job-id="${job.id}">继续</button>`
+        : `<button type="button" data-job-action="pause" data-job-id="${job.id}">暂停</button>`;
+    return `<div class="job-actions">
+      ${actions}
+      <button type="button" data-job-action="stop" data-job-id="${job.id}" class="danger">停止</button>
+    </div>`;
+  }
+
+  function chapterJobsMarkup(jobs) {
+    return (jobs || [])
+      .filter((job) => job && !terminalStatuses.has(job.status))
+      .map(jobMarkup)
+      .join("");
   }
 
   function renderJobs() {
@@ -849,15 +891,17 @@
     if (previewCleaned) {
       previewCleaned.addEventListener("click", () => openBookPreview("cleaned"));
     }
-    const bookDownloads = $("#bookDownloads");
-    if (bookDownloads) {
-      bookDownloads.addEventListener("click", (event) => {
-        const target = event.target.closest("button[data-book-preview]");
-        if (target) {
-          openBookPreview(target.dataset.bookPreview || "current");
-        }
-      });
-    }
+    document.addEventListener("click", (event) => {
+      const previewTarget = event.target.closest("button[data-book-preview]");
+      if (previewTarget) {
+        openBookPreview(previewTarget.dataset.bookPreview || "current");
+        return;
+      }
+      const jobTarget = event.target.closest("[data-job-action]");
+      if (jobTarget) {
+        jobAction(Number(jobTarget.dataset.jobId), jobTarget.dataset.jobAction);
+      }
+    });
     const chapters = $("#chapters");
     if (chapters) {
       chapters.addEventListener("click", (event) => {
@@ -876,12 +920,6 @@
         }
       });
     }
-    document.addEventListener("click", (event) => {
-      const target = event.target.closest("[data-job-action]");
-      if (target) {
-        jobAction(Number(target.dataset.jobId), target.dataset.jobAction);
-      }
-    });
     const saveButton = $("#saveChapterButton");
     if (saveButton) {
       saveButton.addEventListener("click", saveEditor);
@@ -898,6 +936,9 @@
     renderTtsVoices,
     bookPreviewUrl,
     renderSegmentLinks,
+    renderChapterAudioPanel,
+    jobMarkup,
+    chapterJobsMarkup,
     jobActionOptions,
     activeJobs,
     chapterHasAudio,
