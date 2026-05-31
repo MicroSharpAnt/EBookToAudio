@@ -83,3 +83,38 @@ assert.deepStrictEqual(
   )),
   { method: "POST" },
 );
+assert.deepStrictEqual(
+  plain(sandbox.window.EBookToAudio.activeJobs([
+    { id: 1, status: "completed" },
+    { id: 2, status: "paused" },
+    { id: 3, status: "running" },
+    { id: 4, status: "failed" },
+  ])),
+  [
+    { id: 2, status: "paused" },
+    { id: 3, status: "running" },
+  ],
+);
+assert.deepStrictEqual(
+  plain(sandbox.window.EBookToAudio.bookArtifactAvailability(
+    [
+      { id: 1, translation_path: "translation.txt", audio_path: null },
+      { id: 2, translation_path: null, audio_path: null },
+    ],
+    {
+      2: { segments: [{ id: 5 }] },
+    },
+  )),
+  { translations: true, audio: true },
+);
+assert.strictEqual(
+  sandbox.window.EBookToAudio.chapterHasAudio(
+    { id: 3, audio_path: null },
+    { segments: [] },
+  ),
+  false,
+);
+assert.strictEqual(
+  sandbox.window.EBookToAudio.buildTranslatePayload({ translationProvider: "default" }).parallel_segments,
+  null,
+);

@@ -100,6 +100,35 @@
     return { method: "POST", body: JSON.stringify(payload) };
   }
 
+  function activeJobs(jobs) {
+    return (jobs || []).filter((job) => job && !terminalStatuses.has(job.status));
+  }
+
+  function chapterHasAudio(chapter, audio) {
+    return Boolean(
+      (chapter && chapter.audio_path) ||
+        (audio && Array.isArray(audio.segments) && audio.segments.length > 0),
+    );
+  }
+
+  function audioForChapter(audioByChapter, chapterId) {
+    if (!audioByChapter) {
+      return null;
+    }
+    if (typeof audioByChapter.get === "function") {
+      return audioByChapter.get(chapterId);
+    }
+    return audioByChapter[chapterId] || audioByChapter[String(chapterId)] || null;
+  }
+
+  function bookArtifactAvailability(chapters, audioByChapter) {
+    const chapterRows = chapters || [];
+    return {
+      translations: chapterRows.some((chapter) => Boolean(chapter.translation_path)),
+      audio: chapterRows.some((chapter) => chapterHasAudio(chapter, audioForChapter(audioByChapter, chapter.id))),
+    };
+  }
+
   async function api(path, options = {}) {
     const response = await fetch(path, {
       headers: options.body instanceof FormData ? undefined : { "Content-Type": "application/json" },
@@ -176,10 +205,6 @@
       if (translationProvider && state.config.active_translation_provider) {
         translationProvider.value = state.config.active_translation_provider;
       }
-      const translationParallel = $("#translationParallel");
-      if (translationParallel && state.config.limits && state.config.limits.max_parallel_translation_segments) {
-        translationParallel.value = Math.min(1, state.config.limits.max_parallel_translation_segments);
-      }
       const ttsVoice = $("#ttsVoice");
       if (ttsVoice && state.config.tts && state.config.tts.default_voice) {
         ttsVoice.value = state.config.tts.default_voice;
@@ -207,6 +232,7 @@
       state.book = await api("/api/books/current");
       renderBook();
       await loadChapters();
+      await loadBookJobs();
     } catch (error) {
       state.book = null;
       state.chapters = [];
@@ -223,6 +249,7 @@
     try {
       state.chapters = await api(`/api/books/${state.book.id}/chapters`);
       renderChapters();
+      updateBookArtifactLinks();
       await loadAudioMetadata();
     } catch (error) {
       setStatus(`读取章节失败：${error.message}`, "error");
@@ -241,6 +268,22 @@
       }),
     );
     renderChapters();
+    updateBookArtifactLinks();
+  }
+
+  async function loadBookJobs() {
+    if (!state.book) {
+      return;
+    }
+    try {
+      const jobs = await api(`/api/books/${state.book.id}/jobs`);
+      state.jobs.clear();
+      (jobs || []).forEach((job) => state.jobs.set(job.id, job));
+      renderJobs();
+      activeJobs(jobs).forEach((job) => startJobPolling(job.id));
+    } catch (error) {
+      setStatus(`读取任务失败：${error.message}`, "error");
+    }
   }
 
   function renderBook() {
@@ -264,8 +307,21 @@
       link("下载完整 TXT", `/api/books/${state.book.id}/download/full.txt`),
       link("下载清理 TXT", `/api/books/${state.book.id}/download/cleaned.txt`),
     );
-    setHref("#bookTranslationsZip", `/api/books/${state.book.id}/translations/download.zip`);
-    setHref("#bookAudioZip", `/api/books/${state.book.id}/audio/download.zip`);
+    updateBookArtifactLinks();
+  }
+
+  function updateBookArtifactLinks() {
+    if (!state.book) {
+      setHref("#bookTranslationsZip", null);
+      setHref("#bookAudioZip", null);
+      return;
+    }
+    const available = bookArtifactAvailability(state.chapters, state.audio);
+    setHref(
+      "#bookTranslationsZip",
+      available.translations ? `/api/books/${state.book.id}/translations/download.zip` : null,
+    );
+    setHref("#bookAudioZip", available.audio ? `/api/books/${state.book.id}/audio/download.zip` : null);
   }
 
   function renderChapters() {
@@ -295,6 +351,7 @@
     const card = document.createElement("article");
     card.className = "chapter-card";
     const audio = state.audio.get(chapter.id);
+    const hasAudio = chapterHasAudio(chapter, audio);
     const ttsJob = latestJobForChapter(chapter.id, "tts");
     const translationJob = latestJobForChapter(chapter.id, "translate");
     card.innerHTML = `
@@ -304,7 +361,7 @@
           <p class="chapter-subtitle">
             ${formatCount(chapter.char_count)} 字符 · ${wordCountLabel(chapter)} · ${formatCount(chapter.paragraph_count)} 段落 ·
             译文 ${chapter.translation_path ? "已生成" : "未生成"} ·
-            音频 ${chapter.audio_path || (audio && audio.segments && audio.segments.length) ? "已生成" : "未生成"}
+            音频 ${hasAudio ? "已生成" : "未生成"}
           </p>
         </div>
         <div class="chapter-actions">
@@ -328,7 +385,7 @@
             ? `<a class="button-link" href="/api/chapters/${chapter.id}/audio/download">合并 WAV</a>`
             : ""
         }
-        <a class="button-link" href="/api/chapters/${chapter.id}/audio/download.zip">音频 ZIP</a>
+        ${hasAudio ? `<a class="button-link" href="/api/chapters/${chapter.id}/audio/download.zip">音频 ZIP</a>` : ""}
       </div>
       <div class="audio-segments">${renderSegmentLinks(chapter.id, audio)}</div>
       <div class="job-slot">
@@ -531,9 +588,13 @@
       }
       return;
     }
-    if (!state.jobTimers.has(job.id)) {
-      const timer = setInterval(() => pollJob(job.id), 1200);
-      state.jobTimers.set(job.id, timer);
+    startJobPolling(job.id);
+  }
+
+  function startJobPolling(jobId) {
+    if (!state.jobTimers.has(jobId)) {
+      const timer = setInterval(() => pollJob(jobId), 1200);
+      state.jobTimers.set(jobId, timer);
     }
   }
 
@@ -683,6 +744,9 @@
     statusLabel,
     buildTranslatePayload,
     jobActionOptions,
+    activeJobs,
+    chapterHasAudio,
+    bookArtifactAvailability,
     api,
     renderChapters,
   };
