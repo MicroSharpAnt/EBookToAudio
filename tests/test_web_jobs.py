@@ -175,7 +175,13 @@ def test_resume_endpoint_runs_pending_translation_job(tmp_path: Path):
         chapter.id,
         JobKind.TRANSLATE,
         1,
-        {"provider": "default", "parallel_segments": 1, "prompt": "翻译", "context": "简洁"},
+        {
+            "provider": "default",
+            "parallel_segments": 1,
+            "prompt": "翻译",
+            "context": "简洁",
+            "chapter_revision": chapter.content_revision,
+        },
     )
     app.state.repository.create_segments(job.id, chapter.id, ["一二三四五六"])
     app.state.repository.request_pause(job.id)
@@ -206,6 +212,7 @@ def test_resume_tts_without_api_key_keeps_job_paused(tmp_path: Path):
             "parallel_segments": 1,
             "merge": False,
             "source": "chapter",
+            "chapter_revision": chapter.content_revision,
         },
     )
     app.state.repository.create_segments(job.id, chapter.id, ["一二三四五六"])
@@ -230,7 +237,11 @@ def test_resume_non_paused_translation_job_does_not_run(tmp_path: Path):
         chapter.id,
         JobKind.TRANSLATE,
         1,
-        {"provider": "default", "parallel_segments": 1},
+        {
+            "provider": "default",
+            "parallel_segments": 1,
+            "chapter_revision": chapter.content_revision,
+        },
     )
     app.state.repository.create_segments(job.id, chapter.id, ["一二三四五六"])
 
@@ -350,7 +361,13 @@ def test_tts_endpoint_clears_older_promotion_after_new_job_row_exists(tmp_path: 
     client = TestClient(app)
     chapter_id = _chapter_id(client)
     chapter = app.state.repository.get_chapter(chapter_id)
-    older = app.state.repository.create_job(chapter.book_id, chapter.id, JobKind.TTS, total_units=1, options={})
+    older = app.state.repository.create_job(
+        chapter.book_id,
+        chapter.id,
+        JobKind.TTS,
+        total_units=1,
+        options={"chapter_revision": chapter.content_revision},
+    )
     original_create_job = app.state.repository.create_job
 
     def create_job_after_older_promotion(*args, **kwargs):

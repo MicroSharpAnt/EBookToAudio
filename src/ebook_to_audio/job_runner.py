@@ -46,7 +46,10 @@ class JobRunner:
             chapter.id,
             JobKind.TRANSLATE,
             len(source_segments),
-            {"parallel_segments": parallel_segments},
+            {
+                "parallel_segments": parallel_segments,
+                "chapter_revision": chapter.content_revision,
+            },
         )
         if not source_segments:
             self.repository.fail_job(job.id, "chapter has no translatable text")
@@ -174,7 +177,7 @@ class JobRunner:
                 output_path,
                 "\n\n".join(segment.result_text or "" for segment in segments),
             )
-            self.repository.update_chapter_translation_path(chapter.id, output_path)
+            self.repository.promote_chapter_translation_path_if_current_job(job_id, output_path)
         except Exception as exc:
             self.repository.fail_job(job_id, str(exc))
 
@@ -199,6 +202,7 @@ class JobRunner:
                 "context": context,
                 "parallel_segments": parallel_segments,
                 "merge": merge,
+                "chapter_revision": chapter.content_revision,
             },
         )
         self.repository.update_chapter_audio_path(chapter.id, None)

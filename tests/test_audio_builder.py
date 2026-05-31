@@ -6,10 +6,12 @@ from zipfile import ZipFile
 
 import pytest
 
+from ebook_to_audio import audio_builder
 from ebook_to_audio.audio_builder import AudioBuilder
 
 
-def test_audio_builder_without_ffmpeg_merges_compatible_wav_files(tmp_path: Path):
+def test_audio_builder_without_ffmpeg_merges_compatible_wav_files(tmp_path: Path, monkeypatch):
+    monkeypatch.setattr(audio_builder.shutil, "which", lambda _name: None)
     first = _write_wav(tmp_path / "a.wav", frames=4)
     second = _write_wav(tmp_path / "b.wav", frames=6)
     builder = AudioBuilder(ffmpeg_path=None)

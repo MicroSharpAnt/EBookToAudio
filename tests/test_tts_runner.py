@@ -233,7 +233,13 @@ async def test_tts_runner_does_not_promote_older_automatic_merge(tmp_path: Path)
         audio_builder=FakeAudioBuilder(),
         tts_max_chars=2,
     )
-    older = repo.create_job(chapter.book_id, chapter.id, JobKind.TTS, total_units=1, options={})
+    older = repo.create_job(
+        chapter.book_id,
+        chapter.id,
+        JobKind.TTS,
+        total_units=1,
+        options={"chapter_revision": chapter.content_revision},
+    )
     repo.create_segments(older.id, chapter.id, ["一二"])
 
     newer = await runner.start_tts(
@@ -272,7 +278,13 @@ async def test_tts_runner_clears_older_promotion_after_new_job_row_exists(tmp_pa
         audio_builder=FakeAudioBuilder(),
         tts_max_chars=2,
     )
-    older = repo.create_job(chapter.book_id, chapter.id, JobKind.TTS, total_units=1, options={})
+    older = repo.create_job(
+        chapter.book_id,
+        chapter.id,
+        JobKind.TTS,
+        total_units=1,
+        options={"chapter_revision": chapter.content_revision},
+    )
     original_create_job = repo.create_job
 
     def create_job_after_older_promotion(*args, **kwargs):
@@ -290,4 +302,39 @@ async def test_tts_runner_clears_older_promotion_after_new_job_row_exists(tmp_pa
     )
 
     assert repo.get_job(job.id).status == JobStatus.COMPLETED
+    assert repo.get_chapter(chapter.id).audio_path is None
+
+
+@pytest.mark.asyncio
+async def test_tts_runner_does_not_promote_audio_after_chapter_edit(tmp_path: Path):
+    repo = Repository(tmp_path / "app.db")
+    repo.initialize()
+    storage = LocalStorage(tmp_path)
+    chapter = _create_chapter(repo, storage, tmp_path, "一二三四")
+    runner = JobRunner(
+        repo,
+        storage,
+        tts_client=FakeTTSClient(),
+        audio_builder=FakeAudioBuilder(),
+        tts_max_chars=4,
+    )
+    job = repo.create_job(
+        chapter.book_id,
+        chapter.id,
+        JobKind.TTS,
+        total_units=1,
+        options={"chapter_revision": chapter.content_revision},
+    )
+    repo.create_segments(job.id, chapter.id, ["一二三四"])
+    repo.update_chapter(chapter.id, chapter.title, chapter.text_path, chapter.char_count, chapter.paragraph_count)
+
+    completed = await runner.run_tts_job(
+        job.id,
+        voice="Cherry",
+        context="",
+        parallel_segments=1,
+        merge=True,
+    )
+
+    assert completed.status == JobStatus.COMPLETED
     assert repo.get_chapter(chapter.id).audio_path is None
