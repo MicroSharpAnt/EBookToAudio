@@ -27,6 +27,7 @@ class Repository:
         with self._connection() as conn:
             conn.executescript(SCHEMA)
             _ensure_chapter_translation_path(conn)
+            _ensure_job_error_message(conn)
             conn.execute(
                 """
                 UPDATE segments
@@ -160,6 +161,19 @@ class Repository:
             conn.execute(
                 "UPDATE jobs SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
                 (status, job_id),
+            )
+
+    def fail_job(self, job_id: int, error_message: str) -> None:
+        with self._connection() as conn:
+            conn.execute(
+                """
+                UPDATE jobs
+                SET status = ?,
+                    error_message = ?,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+                """,
+                (JobStatus.FAILED, error_message[:1000], job_id),
             )
 
     def request_pause(self, job_id: int) -> None:
@@ -313,6 +327,8 @@ class Repository:
                 """
                 UPDATE segments
                 SET status = ?,
+                    result_text = NULL,
+                    output_path = NULL,
                     error_message = ?,
                     updated_at = CURRENT_TIMESTAMP
                 WHERE id = ?
@@ -373,7 +389,9 @@ class Repository:
             total_units = segment_count or int(row["total_units"])
             status = JobStatus(str(row["status"]))
 
-            if bool(row["stop_requested"]):
+            if status == JobStatus.FAILED:
+                pass
+            elif bool(row["stop_requested"]):
                 status = JobStatus.STOPPED
             elif segment_count > 0 and completed + failed == total_units:
                 if completed == 0 and failed > 0:
@@ -490,6 +508,7 @@ class Repository:
             completed_units=int(row["completed_units"]),
             failed_units=int(row["failed_units"]),
             options=json.loads(str(row["options"] or "{}")),
+            error_message=row["error_message"],
             pause_requested=bool(row["pause_requested"]),
             stop_requested=bool(row["stop_requested"]),
             created_at=str(row["created_at"]),
@@ -547,6 +566,7 @@ CREATE TABLE IF NOT EXISTS jobs (
     completed_units INTEGER NOT NULL DEFAULT 0,
     failed_units INTEGER NOT NULL DEFAULT 0,
     options TEXT NOT NULL DEFAULT '{}',
+    error_message TEXT,
     pause_requested INTEGER NOT NULL DEFAULT 0,
     stop_requested INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -581,3 +601,12 @@ def _ensure_chapter_translation_path(conn: sqlite3.Connection) -> None:
     }
     if "translation_path" not in columns:
         conn.execute("ALTER TABLE chapters ADD COLUMN translation_path TEXT")
+
+
+def _ensure_job_error_message(conn: sqlite3.Connection) -> None:
+    columns = {
+        str(row["name"])
+        for row in conn.execute("PRAGMA table_info(jobs)").fetchall()
+    }
+    if "error_message" not in columns:
+        conn.execute("ALTER TABLE jobs ADD COLUMN error_message TEXT")
