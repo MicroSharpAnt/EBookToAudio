@@ -71,6 +71,7 @@ class Job:
     completed_units: int = 0
     failed_units: int = 0
     options: dict[str, Any] = field(default_factory=dict)
+    error_message: str | None = None
     pause_requested: bool = False
     stop_requested: bool = False
     created_at: str = ""
