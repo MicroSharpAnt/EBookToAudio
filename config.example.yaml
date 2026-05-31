@@ -12,6 +12,10 @@ translation:
       base_url: "https://api.deepseek.com"
       api_key: "replace-with-deepseek-api-key"
       model: "deepseek-chat"
+    mimo:
+      base_url: "https://token-plan-cn.xiaomimimo.com/v1"
+      api_key: "replace-with-mimo-api-key"
+      model: "mimo-translation"
 tts:
   base_url: "https://token-plan-cn.xiaomimimo.com/v1"
   api_key: "replace-with-mimo-api-key"
