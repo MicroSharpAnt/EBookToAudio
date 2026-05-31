@@ -2,6 +2,7 @@
   "use strict";
 
   const terminalStatuses = new Set(["completed", "completed_with_errors", "failed", "stopped"]);
+  const defaultTranslationPrompt = "将文章翻译为中文";
   const cleanLabels = {
     remove_watermarks: "去除文章水印",
     normalize_spacing: "去除文章多余空格等字符",
@@ -47,6 +48,56 @@
 
   function statusLabel(status) {
     return statusLabels[status] || status || "未知";
+  }
+
+  function wordCountLabel(chapter) {
+    const chars = Number(chapter && chapter.char_count);
+    const estimatedWords = Number.isFinite(chars) && chars > 0 ? Math.round(chars / 2) : 0;
+    return `约 ${formatCount(estimatedWords)} 词`;
+  }
+
+  function settingsFromDom() {
+    return {
+      translationProvider: valueOf("#translationProvider"),
+      translationApiKey: valueOf("#translationApiKey"),
+      translationPrompt: valueOf("#translationPrompt"),
+      translationContext: valueOf("#translationContext"),
+      translationParallel: numberOf("#translationParallel"),
+      ttsApiKey: valueOf("#ttsApiKey"),
+    };
+  }
+
+  function buildTranslatePayload(settings) {
+    const source = settings || settingsFromDom();
+    return {
+      provider: source.translationProvider || "",
+      api_key: source.translationApiKey || "",
+      prompt: source.translationPrompt || defaultTranslationPrompt,
+      context: source.translationContext || "",
+      parallel_segments: source.translationParallel || null,
+    };
+  }
+
+  function resumePayloadForJob(job, settings) {
+    const source = settings || settingsFromDom();
+    if (job && job.kind === "translate" && source.translationApiKey) {
+      return { api_key: source.translationApiKey };
+    }
+    if (job && job.kind === "tts" && source.ttsApiKey) {
+      return { api_key: source.ttsApiKey };
+    }
+    return {};
+  }
+
+  function jobActionOptions(job, action, settings) {
+    if (action !== "resume") {
+      return { method: "POST" };
+    }
+    const payload = resumePayloadForJob(job, settings);
+    if (!Object.keys(payload).length) {
+      return { method: "POST" };
+    }
+    return { method: "POST", body: JSON.stringify(payload) };
   }
 
   async function api(path, options = {}) {
@@ -251,7 +302,7 @@
         <div>
           <h3 class="chapter-title">${escapeHtml(chapter.title || `第 ${chapter.chapter_index + 1} 章`)}</h3>
           <p class="chapter-subtitle">
-            ${formatCount(chapter.char_count)} 字符 · ${formatCount(chapter.paragraph_count)} 段落 ·
+            ${formatCount(chapter.char_count)} 字符 · ${wordCountLabel(chapter)} · ${formatCount(chapter.paragraph_count)} 段落 ·
             译文 ${chapter.translation_path ? "已生成" : "未生成"} ·
             音频 ${chapter.audio_path || (audio && audio.segments && audio.segments.length) ? "已生成" : "未生成"}
           </p>
@@ -410,13 +461,7 @@
     try {
       const response = await api(`/api/chapters/${chapterId}/translate`, {
         method: "POST",
-        body: JSON.stringify({
-          provider: valueOf("#translationProvider"),
-          api_key: valueOf("#translationApiKey"),
-          prompt: "将文章翻译为中文",
-          context: valueOf("#translationContext"),
-          parallel_segments: numberOf("#translationParallel"),
-        }),
+        body: JSON.stringify(buildTranslatePayload()),
       });
       trackJob(response);
       setStatus(`章节 ${chapterId} 翻译任务已创建。`);
@@ -464,7 +509,8 @@
 
   async function jobAction(jobId, action) {
     try {
-      const job = await api(`/api/jobs/${jobId}/${action}`, { method: "POST" });
+      const currentJob = state.jobs.get(jobId);
+      const job = await api(`/api/jobs/${jobId}/${action}`, jobActionOptions(currentJob, action));
       trackJob(job);
       setStatus(`任务 #${jobId} ${statusLabel(job.status)}。`);
     } catch (error) {
@@ -632,8 +678,11 @@
 
   window.EBookToAudio = {
     formatCount,
+    wordCountLabel,
     progressPercent,
     statusLabel,
+    buildTranslatePayload,
+    jobActionOptions,
     api,
     renderChapters,
   };
