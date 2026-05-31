@@ -385,6 +385,24 @@ def test_tts_endpoint_clears_older_promotion_after_new_job_row_exists(tmp_path: 
     assert app.state.repository.get_chapter(chapter_id).audio_path is None
 
 
+def test_legacy_revision_zero_tts_segments_remain_visible(tmp_path: Path):
+    app = create_app(data_dir=tmp_path, config_path=tmp_path / "config.yaml", autostart_jobs=False, use_fake_clients=True)
+    client = TestClient(app)
+    chapter_id = _chapter_id(client)
+    chapter = app.state.repository.get_chapter(chapter_id)
+    job = app.state.repository.create_job(chapter.book_id, chapter.id, JobKind.TTS, total_units=1, options={})
+    segment = app.state.repository.create_segments(job.id, chapter.id, ["一二三四"])[0]
+    app.state.repository.complete_segment(
+        segment.id,
+        output_path="books/1/audio/0000/jobs/1/0000.wav",
+    )
+
+    metadata = client.get(f"/api/chapters/{chapter_id}/audio")
+
+    assert metadata.status_code == 200
+    assert metadata.json()["segments"][0]["job_id"] == job.id
+
+
 def test_resume_paused_unsupported_job_kind_returns_cleanly(tmp_path: Path):
     app = create_app(data_dir=tmp_path, config_path=tmp_path / "config.yaml", autostart_jobs=False, use_fake_clients=True)
     client = TestClient(app)

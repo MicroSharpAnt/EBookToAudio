@@ -200,6 +200,22 @@ def test_chapter_update_revision_blocks_stale_artifact_promotion(tmp_path: Path)
     assert repo.get_chapter(chapter.id).translation_path is None
 
 
+def test_legacy_revision_zero_jobs_can_promote_until_chapter_changes(tmp_path: Path):
+    repo = Repository(tmp_path / "app.db")
+    repo.initialize()
+    book = repo.create_book("Title", "txt", "book.txt", "s", "f", "c")
+    chapter = repo.create_chapter(book.id, 0, "第一章", "books/1/chapters/0000.txt", 10, 2)
+    tts_job = repo.create_job(book.id, chapter.id, JobKind.TTS, total_units=1, options={})
+    translate_job = repo.create_job(book.id, chapter.id, JobKind.TRANSLATE, total_units=1, options={})
+
+    assert repo.promote_chapter_audio_path_if_latest_tts_job(tts_job.id, "legacy.wav") is True
+    assert repo.promote_chapter_translation_path_if_current_job(translate_job.id, "legacy.txt") is True
+    repo.update_chapter(chapter.id, "第一章 改", chapter.text_path, 3, 1)
+
+    assert repo.promote_chapter_audio_path_if_latest_tts_job(tts_job.id, "stale.wav") is False
+    assert repo.promote_chapter_translation_path_if_current_job(translate_job.id, "stale.txt") is False
+
+
 def test_refresh_job_progress_uses_segment_count_when_total_units_differs(tmp_path: Path):
     repo = Repository(tmp_path / "app.db")
     _, _, job, segments = _create_segmented_job(repo, total_units=99)
