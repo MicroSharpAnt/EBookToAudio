@@ -2,10 +2,11 @@ from __future__ import annotations
 
 from dataclasses import asdict, replace
 from pathlib import Path
+import shutil
 from typing import Any
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
-from fastapi.responses import FileResponse, PlainTextResponse
+from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
 from pydantic import BaseModel
 
 from .book_parser import ParseError, parse_book_bytes
@@ -28,6 +29,7 @@ from .text_cleaner import clean_text
 
 
 DEFAULT_MAX_UPLOAD_BYTES = 1_000_000
+UPLOAD_READ_CHUNK_BYTES = 64 * 1024
 
 
 class CleanRequest(BaseModel):
@@ -71,18 +73,15 @@ def create_app(
     @app.get("/api/config")
     def get_config() -> dict[str, Any]:
         return {
-            "config_path": str(config_file),
             "loaded": config_error is None,
             "error": config_error,
-            **loaded_config.safe_metadata(),
+            **_config_metadata(loaded_config),
         }
 
     @app.post("/api/books")
     async def upload_book(file: UploadFile = File(...)) -> dict[str, Any]:
-        content = await file.read()
         max_upload_bytes = loaded_config.limits.max_upload_bytes
-        if len(content) > max_upload_bytes:
-            raise HTTPException(status_code=413, detail="uploaded file is too large")
+        content = await _read_upload_bytes(file, max_upload_bytes)
 
         filename = file.filename or "book.txt"
         try:
@@ -101,14 +100,15 @@ def create_app(
         source_path = storage.source_path(book.id, _upload_artifact_filename(filename))
         filtered_path = storage.filtered_path(book.id)
         cleaned_path = storage.cleaned_path(book.id)
-        storage.resolve_artifact(source_path).parent.mkdir(parents=True, exist_ok=True)
-        storage.resolve_artifact(source_path).write_bytes(content)
-        storage.write_text(filtered_path, parsed.full_text)
-        storage.write_text(cleaned_path, parsed.full_text)
-
-        # Keep the repository paths accurate after the ID-dependent artifacts exist.
-        repository.update_book_paths(book.id, source_path, filtered_path, cleaned_path)
-        return _book_dict(repository.get_book(book.id))
+        try:
+            storage.resolve_artifact(source_path).parent.mkdir(parents=True, exist_ok=True)
+            storage.resolve_artifact(source_path).write_bytes(content)
+            storage.write_text(filtered_path, parsed.full_text)
+            storage.write_text(cleaned_path, parsed.full_text)
+            return _book_dict(repository.update_book_paths(book.id, source_path, filtered_path, cleaned_path))
+        except (OSError, PathSafetyError) as exc:
+            _discard_partial_book(repository, storage, book.id)
+            raise HTTPException(status_code=500, detail="could not upload book") from exc
 
     @app.get("/api/books")
     def list_books() -> list[dict[str, Any]]:
@@ -163,23 +163,29 @@ def create_app(
         chapters = split_into_chapters(_read_artifact_text(storage, book.cleaned_path))
         job = repository.create_job(book.id, None, JobKind.SPLIT, len(chapters), options={})
         try:
-            repository.delete_chapters_for_book(book.id)
+            chapter_rows: list[tuple[int, str, str, int, int]] = []
             for index, split_chapter in enumerate(chapters):
-                text_path = storage.chapter_path(book.id, index)
+                text_path = _staged_chapter_path(book.id, job.id, index)
                 storage.write_text(text_path, split_chapter.text)
                 metadata = chapter_metadata(split_chapter.text)
-                repository.create_chapter(
-                    book.id,
-                    index,
-                    split_chapter.title,
-                    text_path,
-                    metadata.char_count,
-                    metadata.paragraph_count,
+                chapter_rows.append(
+                    (
+                        index,
+                        split_chapter.title,
+                        text_path,
+                        metadata.char_count,
+                        metadata.paragraph_count,
+                    )
                 )
+            repository.replace_chapters_for_book(book.id, chapter_rows)
             job = repository.complete_job(job.id, completed_units=len(chapters))
-        except Exception as exc:
-            repository.fail_job(job.id, str(exc))
-            raise
+        except Exception:
+            repository.fail_job(job.id, "could not split book")
+            job = repository.get_job(job.id)
+            return JSONResponse(
+                status_code=500,
+                content={"detail": "could not split book", "job": _job_dict(job)},
+            )
         return {"job": _job_dict(job)}
 
     @app.get("/api/jobs/{job_id}")
@@ -217,10 +223,15 @@ def create_app(
     @app.get("/api/chapters/{chapter_id}/download.zip")
     def download_chapter_zip(chapter_id: int) -> FileResponse:
         chapter = _get_chapter_or_404(repository, chapter_id)
-        zip_path = storage.create_zip(
-            f"books/{chapter.book_id}/downloads/chapter-{chapter.chapter_index:04d}.zip",
-            [chapter.text_path],
-        )
+        try:
+            zip_path = storage.create_zip(
+                f"books/{chapter.book_id}/downloads/chapter-{chapter.chapter_index:04d}.zip",
+                [chapter.text_path],
+            )
+        except FileNotFoundError as exc:
+            raise HTTPException(status_code=404, detail="chapter artifact not found") from exc
+        except (OSError, PathSafetyError) as exc:
+            raise HTTPException(status_code=500, detail="could not create chapter archive") from exc
         return FileResponse(zip_path, filename=f"chapter-{chapter.chapter_index + 1}.zip", media_type="application/zip")
 
     return app
@@ -232,8 +243,8 @@ def _load_or_default_config(config_path: Path, data_dir: Path | None) -> tuple[A
         if data_dir is None:
             return config, None
         return replace(config, data_dir=data_dir), None
-    except ConfigError as exc:
-        return _default_config(data_dir or Path("data"), None), str(exc)
+    except ConfigError:
+        return _default_config(data_dir or Path("data"), None), "configuration invalid"
 
 
 def _default_config(data_dir: Path, limits: LimitsConfig | None) -> AppConfig:
@@ -283,6 +294,23 @@ def _job_dict(job: Job) -> dict[str, Any]:
     return data
 
 
+async def _read_upload_bytes(file: UploadFile, max_upload_bytes: int) -> bytes:
+    content = bytearray()
+    while True:
+        chunk = await file.read(UPLOAD_READ_CHUNK_BYTES)
+        if not chunk:
+            return bytes(content)
+        content.extend(chunk)
+        if len(content) > max_upload_bytes:
+            raise HTTPException(status_code=413, detail="uploaded file is too large")
+
+
+def _config_metadata(config: AppConfig) -> dict[str, Any]:
+    metadata = config.safe_metadata()
+    metadata.pop("data_dir", None)
+    return metadata
+
+
 def _clean_result_dict(clean_result: Any) -> dict[str, Any]:
     data = asdict(clean_result)
     data.pop("text", None)
@@ -292,6 +320,18 @@ def _clean_result_dict(clean_result: Any) -> dict[str, Any]:
 def _upload_artifact_filename(filename: str) -> str:
     name = Path(filename).name
     return name if name and name not in {".", ".."} else "source.txt"
+
+
+def _staged_chapter_path(book_id: int, job_id: int, chapter_index: int) -> str:
+    return f"books/{book_id}/chapters/split-{job_id}/{chapter_index:04d}.txt"
+
+
+def _discard_partial_book(repository: Repository, storage: LocalStorage, book_id: int) -> None:
+    repository.delete_book(book_id)
+    try:
+        shutil.rmtree(storage.book_dir(book_id), ignore_errors=True)
+    except PathSafetyError:
+        pass
 
 
 def _get_book_or_404(repository: Repository, book_id: int) -> Book:

@@ -102,6 +102,10 @@ class Repository:
             )
             return self.get_book(book_id, conn=conn)
 
+    def delete_book(self, book_id: int) -> None:
+        with self._connection() as conn:
+            conn.execute("DELETE FROM books WHERE id = ?", (book_id,))
+
     def create_chapter(
         self,
         book_id: int,
@@ -133,9 +137,24 @@ class Repository:
             ).fetchall()
         return [self._chapter_from_row(row) for row in rows]
 
-    def delete_chapters_for_book(self, book_id: int) -> None:
+    def replace_chapters_for_book(
+        self,
+        book_id: int,
+        chapters: list[tuple[int, str, str, int, int]],
+    ) -> list[Chapter]:
         with self._connection() as conn:
             conn.execute("DELETE FROM chapters WHERE book_id = ?", (book_id,))
+            created: list[Chapter] = []
+            for chapter_index, title, text_path, char_count, paragraph_count in chapters:
+                cursor = conn.execute(
+                    """
+                    INSERT INTO chapters(book_id, chapter_index, title, text_path, char_count, paragraph_count)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    """,
+                    (book_id, chapter_index, title, text_path, char_count, paragraph_count),
+                )
+                created.append(self._get_chapter(int(cursor.lastrowid), conn))
+            return created
 
     def update_chapter(
         self,
