@@ -286,11 +286,19 @@ class JobRunner:
                     self.storage.resolve_artifact(output_path),
                 )
                 current_job = self.repository.get_job(job_id)
-                if (
-                    current_job.pause_requested
-                    or current_job.stop_requested
-                    or current_job.status in {JobStatus.PAUSED, JobStatus.STOPPED}
-                ):
+                if current_job.pause_requested or current_job.status == JobStatus.PAUSED:
+                    self.storage.resolve_artifact(output_path).unlink(missing_ok=True)
+                    self.repository.release_running_segment(
+                        segment.id,
+                        SegmentStatus.PENDING,
+                    )
+                    return
+                if current_job.stop_requested or current_job.status == JobStatus.STOPPED:
+                    self.storage.resolve_artifact(output_path).unlink(missing_ok=True)
+                    self.repository.release_running_segment(
+                        segment.id,
+                        SegmentStatus.STOPPED,
+                    )
                     return
                 self.repository.complete_segment(
                     segment.id,

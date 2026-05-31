@@ -350,6 +350,25 @@ class Repository:
             job_id = self._job_id_for_segment(segment_id, conn)
             self.refresh_job_progress(job_id, conn=conn)
 
+    def release_running_segment(self, segment_id: int, status: SegmentStatus) -> None:
+        if status not in {SegmentStatus.PENDING, SegmentStatus.STOPPED}:
+            raise ValueError(f"unsupported release segment status: {status}")
+        with self._connection() as conn:
+            conn.execute(
+                """
+                UPDATE segments
+                SET status = ?,
+                    output_path = NULL,
+                    error_message = NULL,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id = ? AND status = ?
+                """,
+                (status, segment_id, SegmentStatus.RUNNING),
+            )
+            job_id = self._job_id_for_segment(segment_id, conn)
+            if status == SegmentStatus.STOPPED:
+                self.refresh_job_progress(job_id, conn=conn)
+
     def stop_running_segments(self, job_id: int) -> int:
         with self._connection() as conn:
             cursor = conn.execute(

@@ -31,8 +31,10 @@ class BlockingTTSClient:
     def __init__(self):
         self.started = threading.Event()
         self.release = threading.Event()
+        self.calls = 0
 
     def synthesize(self, text, voice, context, output_path):
+        self.calls += 1
         self.started.set()
         self.release.wait(timeout=5)
         output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -135,8 +137,25 @@ async def test_tts_runner_does_not_complete_active_segment_after_pause(tmp_path:
     paused = repo.get_job(job.id)
     segment = repo.list_segments(job.id)[0]
     assert paused.status == JobStatus.PAUSED
-    assert segment.status != SegmentStatus.COMPLETED
+    assert segment.status == SegmentStatus.PENDING
     assert segment.output_path is None
+
+    repo.resume_job(job.id)
+    tts.started.clear()
+    tts.release.set()
+
+    resumed = await runner.run_tts_job(
+        job.id,
+        voice="Cherry",
+        context="",
+        parallel_segments=1,
+        merge=False,
+    )
+
+    assert resumed.status == JobStatus.COMPLETED
+    assert repo.list_segments(job.id)[0].status == SegmentStatus.COMPLETED
+    assert repo.list_segments(job.id)[0].output_path == "books/1/audio/0000-0000.wav"
+    assert tts.calls == 2
 
 
 @pytest.mark.asyncio
@@ -168,8 +187,11 @@ async def test_tts_runner_does_not_complete_active_segment_after_stop(tmp_path: 
     stopped = repo.get_job(job.id)
     segment = repo.list_segments(job.id)[0]
     assert stopped.status == JobStatus.STOPPED
-    assert segment.status != SegmentStatus.COMPLETED
+    assert segment.status == SegmentStatus.STOPPED
     assert segment.output_path is None
+    assert SegmentStatus.RUNNING not in [
+        existing.status for existing in repo.list_segments(job.id)
+    ]
 
 
 @pytest.mark.asyncio
