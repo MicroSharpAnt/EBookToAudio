@@ -119,7 +119,14 @@ def clean_text(text: str, operations: Iterable[str]) -> CombinedCleanResult:
 
 def _is_short_noise_candidate(line: str, max_line_chars: int) -> bool:
     stripped = line.strip()
-    return bool(stripped) and len(stripped) <= max_line_chars
+    if not stripped or len(stripped) > max_line_chars:
+        return False
+    return bool(
+        _URL_OR_DOMAIN_RE.search(stripped)
+        or _WATERMARK_RE.search(stripped)
+        or _DECORATIVE_LINE_RE.match(stripped)
+        or re.search(r"(广告|发布页|防盗|盗版|来源|书源|推广)", stripped, re.IGNORECASE)
+    )
 
 
 def _result(operation: str, text: str, before_chars: int, removed_lines: int) -> CleanResult:

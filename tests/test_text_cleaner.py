@@ -32,6 +32,15 @@ def test_remove_repeated_noise_lines_only_removes_short_repeated_noise():
     assert result.removed_lines == 3
 
 
+def test_remove_repeated_noise_lines_preserves_repeated_ordinary_prose():
+    text = "是的。\n正文一\n是的。\n正文二\n是的。\n正文三"
+
+    result = remove_repeated_noise_lines(text, min_repeats=3)
+
+    assert result.text == text
+    assert result.removed_lines == 0
+
+
 def test_remove_decorative_characters_removes_separator_lines():
     result = remove_decorative_characters("正文\n**************\n----------\n下一段")
 
