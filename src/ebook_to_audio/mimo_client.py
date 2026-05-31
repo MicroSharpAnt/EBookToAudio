@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import base64
 import binascii
+import io
 from collections.abc import Callable
 from pathlib import Path
 import time
 from typing import Any
+import wave
 
 from openai import OpenAI
 
@@ -86,9 +88,13 @@ class MimoTTSClient:
 
 def _audio_bytes(completion: Any) -> bytes:
     try:
-        audio_payload = completion.choices[0].message.audio
-        data = audio_payload.get("data") if isinstance(audio_payload, dict) else audio_payload.data
-    except (AttributeError, IndexError, TypeError) as exc:
+        choice = _first_choice(completion)
+        if choice is None:
+            raise MissingMimoAudioData(_response_summary(completion))
+        message = _field(choice, "message")
+        audio_payload = _field(message, "audio")
+        data = _field(audio_payload, "data")
+    except (AttributeError, IndexError, KeyError, TypeError) as exc:
         raise MissingMimoAudioData(_response_summary(completion)) from exc
     if not data:
         raise MissingMimoAudioData(_response_summary(completion))
@@ -98,13 +104,25 @@ def _audio_bytes(completion: Any) -> bytes:
         raise MimoTTSResponseError("MiMo response audio data was not valid base64") from exc
     if not audio:
         raise MimoTTSResponseError("MiMo response audio data was empty")
-    if not _is_wav_audio(audio):
+    if not _has_wav_magic(audio):
         raise MimoTTSResponseError("MiMo response audio data was not WAV")
+    if not _is_valid_wav_audio(audio):
+        raise MimoTTSResponseError("MiMo response audio data was not valid WAV")
     return audio
 
 
-def _is_wav_audio(audio: bytes) -> bool:
+def _has_wav_magic(audio: bytes) -> bool:
     return len(audio) >= 12 and audio[:4] == b"RIFF" and audio[8:12] == b"WAVE"
+
+
+def _is_valid_wav_audio(audio: bytes) -> bool:
+    try:
+        with wave.open(io.BytesIO(audio), "rb") as wav:
+            wav.getparams()
+            wav.readframes(1)
+    except (EOFError, wave.Error):
+        return False
+    return True
 
 
 def _response_summary(completion: Any) -> str:
@@ -113,31 +131,31 @@ def _response_summary(completion: Any) -> str:
         return f"type={type(completion).__name__}; choices=missing"
 
     parts = []
-    finish_reason = getattr(choice, "finish_reason", None)
+    finish_reason = _optional_field(choice, "finish_reason")
     if finish_reason:
         parts.append(f"finish_reason={_short_text(finish_reason)}")
 
-    message = getattr(choice, "message", None)
+    message = _optional_field(choice, "message")
     if message is None:
         parts.append("message=missing")
         return "; ".join(parts)
 
-    content = getattr(message, "content", None)
+    content = _optional_field(message, "content")
     if content:
         parts.append(f"content={_short_text(content)}")
 
-    refusal = getattr(message, "refusal", None)
+    refusal = _optional_field(message, "refusal")
     if refusal:
         parts.append(f"refusal={_short_text(refusal)}")
 
-    audio = getattr(message, "audio", None)
+    audio = _optional_field(message, "audio")
     if audio is None:
         parts.append("audio=None")
     elif isinstance(audio, dict):
         keys = ",".join(sorted(str(key) for key in audio.keys())) or "empty"
         parts.append(f"audio_keys={keys}")
     else:
-        data = getattr(audio, "data", None)
+        data = _optional_field(audio, "data")
         parts.append(f"audio_data={'present' if data else 'missing'}")
 
     message_keys = _object_keys(message)
@@ -149,12 +167,27 @@ def _response_summary(completion: Any) -> str:
 
 def _first_choice(completion: Any) -> Any | None:
     try:
-        return completion.choices[0]
-    except (AttributeError, IndexError, TypeError):
+        choices = _field(completion, "choices")
+        return choices[0]
+    except (AttributeError, IndexError, KeyError, TypeError):
         return None
 
 
+def _field(value: Any, key: str) -> Any:
+    if isinstance(value, dict):
+        return value[key]
+    return getattr(value, key)
+
+
+def _optional_field(value: Any, key: str) -> Any:
+    if isinstance(value, dict):
+        return value.get(key)
+    return getattr(value, key, None)
+
+
 def _object_keys(value: Any) -> list[str]:
+    if isinstance(value, dict):
+        return sorted(str(key) for key in value.keys())
     if hasattr(value, "model_dump"):
         try:
             data = value.model_dump(exclude_none=True)
