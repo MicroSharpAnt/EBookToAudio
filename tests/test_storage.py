@@ -30,3 +30,9 @@ def test_storage_rejects_negative_artifact_indexes(tmp_path: Path):
 
     with pytest.raises(PathSafetyError):
         storage.audio_path(1, 0, -1)
+
+
+def test_storage_can_scope_audio_paths_by_job(tmp_path: Path):
+    storage = LocalStorage(tmp_path)
+
+    assert storage.audio_path(1, 0, 2, extension="wav", job_id=9) == "books/1/audio/0000/jobs/9/0002.wav"

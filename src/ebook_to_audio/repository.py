@@ -189,7 +189,7 @@ class Repository:
                 (translation_path, chapter_id),
             )
 
-    def update_chapter_audio_path(self, chapter_id: int, audio_path: str) -> None:
+    def update_chapter_audio_path(self, chapter_id: int, audio_path: str | None) -> None:
         with self._connection() as conn:
             conn.execute(
                 """

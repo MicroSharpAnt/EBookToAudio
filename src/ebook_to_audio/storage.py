@@ -50,9 +50,21 @@ class LocalStorage:
         _validate_non_negative(segment_index, "segment_index")
         return f"{self.book_dir_path(book_id)}/translations/{chapter_index:04d}-{segment_index:04d}.txt"
 
-    def audio_path(self, book_id: int, chapter_index: int, segment_index: int, extension: str = "mp3") -> str:
+    def audio_path(
+        self,
+        book_id: int,
+        chapter_index: int,
+        segment_index: int,
+        extension: str = "mp3",
+        job_id: int | None = None,
+    ) -> str:
         _validate_non_negative(chapter_index, "chapter_index")
         _validate_non_negative(segment_index, "segment_index")
+        if job_id is not None:
+            return (
+                f"{self.book_dir_path(book_id)}/audio/{chapter_index:04d}/"
+                f"jobs/{_safe_id(job_id)}/{segment_index:04d}.{_safe_extension(extension)}"
+            )
         return f"{self.book_dir_path(book_id)}/audio/{chapter_index:04d}-{segment_index:04d}.{_safe_extension(extension)}"
 
     def write_text(self, relative_path: str, text: str) -> Path:

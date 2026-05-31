@@ -356,7 +356,8 @@ def create_app(
                 )
             )
 
-        return _job_dict(resumed)
+        repository.resume_job(job_id)
+        return _job_dict(repository.get_job(job_id))
 
     @app.post("/api/jobs/{job_id}/stop")
     def stop_job(job_id: int) -> dict[str, Any]:
@@ -713,6 +714,7 @@ def _create_tts_job(
     source_path = chapter.translation_path if source == "translation" else chapter.text_path
     if source_path is None:
         raise HTTPException(status_code=404, detail="translation not found")
+    repository.update_chapter_audio_path(chapter.id, None)
     source_segments = _chapter_segments(storage.read_text(source_path), segment_limit)
     job = repository.create_job(
         chapter.book_id,
@@ -784,15 +786,21 @@ def _tts_context(request: TTSRequest) -> str:
 
 
 def _audio_segments_for_chapter(repository: Repository, chapter: Chapter) -> list[Segment]:
-    segments: list[Segment] = []
+    job = _latest_tts_job_for_chapter(repository, chapter)
+    if job is None:
+        return []
+    return [
+        segment
+        for segment in repository.list_segments(job.id)
+        if segment.output_path is not None
+    ]
+
+
+def _latest_tts_job_for_chapter(repository: Repository, chapter: Chapter) -> Job | None:
     for job in repository.list_jobs(chapter.book_id):
         if job.chapter_id == chapter.id and job.kind == JobKind.TTS:
-            segments.extend(
-                segment
-                for segment in repository.list_segments(job.id)
-                if segment.output_path is not None
-            )
-    return sorted(segments, key=lambda segment: (segment.job_id, segment.segment_index))
+            return job
+    return None
 
 
 def _get_audio_segment_or_404(
