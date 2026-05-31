@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>EBookToAudio 工作台</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <div>
+          <h1>EBookToAudio 工作台</h1>
+          <p id="appStatus" class="status-line">正在读取配置...</p>
+        </div>
+        <div class="topbar-actions">
+          <button id="refreshButton" type="button">刷新</button>
+          <a id="bookTranslationsZip" class="button-link muted" href="#" aria-disabled="true">整本译文 ZIP</a>
+          <a id="bookAudioZip" class="button-link muted" href="#" aria-disabled="true">整本音频 ZIP</a>
+        </div>
+      </header>
+
+      <main class="workspace">
+        <aside class="settings-panel" aria-label="全局设置">
+          <section class="section-block">
+            <h2>导入</h2>
+            <form id="uploadForm" class="upload-form">
+              <input id="bookFile" type="file" accept=".epub,.txt" required />
+              <button type="submit">上传 EPUB/TXT</button>
+            </form>
+            <div id="bookInfo" class="book-info">尚未导入书籍。</div>
+            <div class="download-grid" id="bookDownloads"></div>
+          </section>
+
+          <section class="section-block">
+            <h2>清理</h2>
+            <div class="button-stack">
+              <button type="button" data-clean-operation="remove_watermarks">去除文章水印</button>
+              <button type="button" data-clean-operation="normalize_spacing">去除文章多余空格等字符</button>
+            </div>
+            <label class="check-row">
+              <input type="checkbox" name="cleanOption" value="remove_repeated_noise_lines" checked />
+              删除重复广告/来源行
+            </label>
+            <label class="check-row">
+              <input type="checkbox" name="cleanOption" value="remove_decorative_characters" checked />
+              删除装饰分隔线
+            </label>
+            <button id="applySelectedClean" type="button">应用选中的清理项</button>
+            <div id="cleanResult" class="small-log"></div>
+          </section>
+
+          <section class="section-block">
+            <h2>章节</h2>
+            <button id="splitButton" type="button">按章节分成多个txt</button>
+            <div id="splitJob" class="job-slot"></div>
+          </section>
+
+          <section class="section-block">
+            <h2>翻译设置</h2>
+            <label>Provider <input id="translationProvider" value="default" /></label>
+            <label>API Key <input id="translationApiKey" type="password" autocomplete="off" /></label>
+            <label>并行段数 <input id="translationParallel" type="number" min="1" value="1" /></label>
+            <label>上下文提示 <textarea id="translationContext" rows="3" placeholder="保留术语、风格或背景要求"></textarea></label>
+          </section>
+
+          <section class="section-block">
+            <h2>TTS 设置</h2>
+            <label>Provider <input id="ttsProvider" value="mimo" /></label>
+            <label>API Key <input id="ttsApiKey" type="password" autocomplete="off" /></label>
+            <label>Base URL <input id="ttsBaseUrl" placeholder="可选" /></label>
+            <label>Model <input id="ttsModel" placeholder="可选" /></label>
+            <label>Voice <input id="ttsVoice" value="Cherry" /></label>
+            <label>并行段数 <input id="ttsParallel" type="number" min="1" value="1" /></label>
+            <label>旁白风格 <input id="narrationStyle" placeholder="舒缓、紧张、纪实..." /></label>
+            <label>角色语气 <input id="characterTone" placeholder="坚定、温柔、冷静..." /></label>
+            <label>作品背景 <textarea id="workBackground" rows="3"></textarea></label>
+            <label>通用上下文 <textarea id="ttsContext" rows="3"></textarea></label>
+            <label>文本来源
+              <select id="ttsSource">
+                <option value="chapter">原文章节</option>
+                <option value="translation">译文章节</option>
+              </select>
+            </label>
+            <label class="check-row">
+              <input id="mergeAudio" type="checkbox" checked />
+              生成后自动合并音频
+            </label>
+          </section>
+        </aside>
+
+        <section class="main-panel" aria-label="章节工作区">
+          <div class="panel-heading">
+            <div>
+              <h2>章节列表</h2>
+              <p id="chapterSummary">导入并拆分后显示每章 TXT、译文和音频状态。</p>
+            </div>
+            <div id="jobBoard" class="job-board"></div>
+          </div>
+          <div id="chapters" class="chapter-list"></div>
+        </section>
+      </main>
+    </div>
+
+    <dialog id="chapterDialog" class="editor-dialog">
+      <form method="dialog" class="editor-shell">
+        <div class="editor-head">
+          <input id="editorTitle" aria-label="章节标题" />
+          <div class="editor-actions">
+            <button id="saveChapterButton" type="button">保存</button>
+            <button type="submit">关闭</button>
+          </div>
+        </div>
+        <textarea id="editorText" spellcheck="false"></textarea>
+        <p id="editorStatus" class="status-line"></p>
+      </form>
+    </dialog>
+
+    <template id="chapterActionTemplate">
+      <button type="button">将文章翻译为中文</button>
+    </template>
+
+    <script src="/static/app.js"></script>
+  </body>
+</html>

@@ -9,6 +9,7 @@ import wave
 
 from fastapi import BackgroundTasks, Body, FastAPI, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from .audio_builder import AudioBuilder
@@ -108,6 +109,8 @@ def create_app(
         repository.reset_running_to_pending()
 
     app = FastAPI(title="EBook To Audio")
+    static_dir = Path(__file__).with_name("static")
+    app.mount("/static", StaticFiles(directory=static_dir), name="static")
     app.state.config = loaded_config
     app.state.config_error = config_error
     app.state.config_path = config_file
@@ -122,6 +125,10 @@ def create_app(
             "error": config_error,
             **_config_metadata(loaded_config),
         }
+
+    @app.get("/", include_in_schema=False)
+    def static_index() -> FileResponse:
+        return FileResponse(static_dir / "index.html")
 
     @app.post("/api/books")
     async def upload_book(file: UploadFile = File(...)) -> dict[str, Any]:

@@ -1,0 +1,31 @@
+from pathlib import Path
+
+from fastapi.testclient import TestClient
+
+from ebook_to_audio.web import create_app
+
+
+def test_static_ui_served_with_required_labels(tmp_path: Path):
+    app = create_app(data_dir=tmp_path, config_path=tmp_path / "missing.yaml", autostart_jobs=False)
+    client = TestClient(app)
+
+    response = client.get("/")
+
+    assert response.status_code == 200
+    assert "text/html" in response.headers["content-type"]
+    for label in [
+        "去除文章水印",
+        "去除文章多余空格等字符",
+        "按章节分成多个txt",
+        "将文章翻译为中文",
+    ]:
+        assert label in response.text
+
+
+def test_static_assets_are_served(tmp_path: Path):
+    app = create_app(data_dir=tmp_path, config_path=tmp_path / "missing.yaml", autostart_jobs=False)
+    client = TestClient(app)
+
+    for path in ["/static/styles.css", "/static/app.js"]:
+        response = client.get(path)
+        assert response.status_code == 200
