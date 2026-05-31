@@ -296,6 +296,40 @@ def test_repeated_tts_exposes_only_latest_job_audio(tmp_path: Path):
     assert not any(f"/jobs/{first_job_id}/" in name for name in names)
 
 
+def test_manual_merge_of_older_tts_job_does_not_replace_current_audio(tmp_path: Path):
+    app = create_app(data_dir=tmp_path, config_path=tmp_path / "config.yaml", autostart_jobs=False, use_fake_clients=True)
+    client = TestClient(app)
+    chapter_id = _chapter_id(client)
+
+    first = client.post(
+        f"/api/chapters/{chapter_id}/tts",
+        json={"provider": "mimo", "voice": "Cherry", "parallel_segments": 1, "merge": True},
+    )
+    second = client.post(
+        f"/api/chapters/{chapter_id}/tts",
+        json={"provider": "mimo", "voice": "Cherry", "parallel_segments": 1, "merge": True},
+    )
+    first_job_id = first.json()["id"]
+    second_job_id = second.json()["id"]
+    first_audio_path = app.state.repository.get_chapter(chapter_id).audio_path
+
+    manual_merge = client.post(f"/api/jobs/{first_job_id}/audio/merge")
+
+    assert manual_merge.status_code == 200
+    assert f"/jobs/{first_job_id}/chapter.wav" in manual_merge.json()["merged_audio_path"]
+    assert app.state.repository.get_chapter(chapter_id).audio_path == first_audio_path
+    metadata = client.get(f"/api/chapters/{chapter_id}/audio").json()
+    assert f"/jobs/{second_job_id}/chapter.wav" in metadata["audio_path"]
+    assert all(segment["job_id"] == second_job_id for segment in metadata["segments"])
+    chapter_zip = client.get(f"/api/chapters/{chapter_id}/audio/download.zip")
+    zip_path = tmp_path / "current-merged-audio.zip"
+    zip_path.write_bytes(chapter_zip.content)
+    with ZipFile(zip_path) as archive:
+        names = archive.namelist()
+    assert any(f"/jobs/{second_job_id}/chapter.wav" in name for name in names)
+    assert not any(f"/jobs/{first_job_id}/chapter.wav" in name for name in names)
+
+
 def test_resume_paused_unsupported_job_kind_returns_cleanly(tmp_path: Path):
     app = create_app(data_dir=tmp_path, config_path=tmp_path / "config.yaml", autostart_jobs=False, use_fake_clients=True)
     client = TestClient(app)

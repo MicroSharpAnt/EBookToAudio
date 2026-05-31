@@ -75,7 +75,7 @@ async def test_tts_runner_writes_segments_and_merged_chapter(tmp_path: Path):
     segments = repo.list_segments(job.id)
     assert [segment.status for segment in segments] == [SegmentStatus.COMPLETED] * 4
     assert all(segment.output_path and segment.output_path.endswith(".wav") for segment in segments)
-    assert repo.get_chapter(chapter.id).audio_path.endswith("chapter.wav")
+    assert repo.get_chapter(chapter.id).audio_path == "books/1/audio/0000/jobs/1/chapter.wav"
 
 
 @pytest.mark.asyncio

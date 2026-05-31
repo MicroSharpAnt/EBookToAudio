@@ -241,7 +241,14 @@ class JobRunner:
         ):
             return current_job
         if merge:
-            self.merge_chapter_audio(job_id)
+            merged = self.merge_chapter_audio(job_id)
+            if merged is not None:
+                current_job = self.repository.get_job(job_id)
+                chapter = self.repository.get_chapter(current_job.chapter_id)
+                self.repository.update_chapter_audio_path(
+                    chapter.id,
+                    str(merged.relative_to(self.storage.data_dir)),
+                )
         return self.repository.refresh_job_progress(job_id)
 
     def _ensure_tts_segments(self, job: Job) -> None:
@@ -331,7 +338,7 @@ class JobRunner:
             self.storage.resolve_artifact(segment.output_path or "")
             for segment in segments
         ]
-        output_path = f"books/{chapter.book_id}/audio/{chapter.chapter_index:04d}/chapter.wav"
+        output_path = f"books/{chapter.book_id}/audio/{chapter.chapter_index:04d}/jobs/{job_id}/chapter.wav"
         try:
             merged = self.audio_builder.merge_audio(
                 input_paths,
@@ -339,7 +346,6 @@ class JobRunner:
             )
             if merged is None:
                 return None
-            self.repository.update_chapter_audio_path(chapter.id, output_path)
             return merged
         except Exception as exc:
             self.repository.fail_job(job_id, str(exc))

@@ -542,8 +542,19 @@ def create_app(
         if merged is None:
             return {"merged": False, "job": _job_dict(repository.get_job(job_id))}
         refreshed_job = repository.get_job(job_id)
+        merged_audio_path = str(merged.relative_to(storage.data_dir))
+        if refreshed_job.chapter_id is not None:
+            chapter = repository.get_chapter(refreshed_job.chapter_id)
+            latest_job = _latest_tts_job_for_chapter(repository, chapter)
+            if latest_job is not None and latest_job.id == refreshed_job.id:
+                repository.update_chapter_audio_path(chapter.id, merged_audio_path)
         audio_path = repository.get_chapter(refreshed_job.chapter_id).audio_path if refreshed_job.chapter_id else None
-        return {"merged": True, "audio_path": audio_path, "job": _job_dict(refreshed_job)}
+        return {
+            "merged": True,
+            "merged_audio_path": merged_audio_path,
+            "audio_path": audio_path,
+            "job": _job_dict(refreshed_job),
+        }
 
     @app.get("/api/chapters/{chapter_id}/translation/download.txt", response_class=PlainTextResponse)
     def download_translation_text(chapter_id: int) -> PlainTextResponse:
