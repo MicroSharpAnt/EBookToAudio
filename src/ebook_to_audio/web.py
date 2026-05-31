@@ -1,14 +1,17 @@
 from __future__ import annotations
 
 from dataclasses import asdict, replace
+import io
 from pathlib import Path
 import shutil
-from typing import Any
+from typing import Any, Literal
+import wave
 
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import BackgroundTasks, FastAPI, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
 from pydantic import BaseModel
 
+from .audio_builder import AudioBuilder
 from .book_parser import ParseError, parse_book_bytes
 from .chapter_splitter import split_into_chapters
 from .config import (
@@ -21,7 +24,8 @@ from .config import (
     TranslationConfig,
     load_config,
 )
-from .job_runner import JobRunner
+from .job_runner import JobRunner, _chapter_segments
+from .mimo_client import MimoTTSClient, MissingMimoApiKey
 from .models import Book, Chapter, Job, JobKind
 from .repository import Repository
 from .storage import LocalStorage, PathSafetyError, chapter_metadata
@@ -41,10 +45,28 @@ class ChapterUpdateRequest(BaseModel):
     text: str
 
 
+class TranslateRequest(BaseModel):
+    api_key: str | None = None
+    provider: str | None = None
+    parallel_segments: int | None = None
+
+
+class TTSRequest(BaseModel):
+    api_key: str | None = None
+    base_url: str | None = None
+    model: str | None = None
+    voice: str | None = None
+    context: str = ""
+    parallel_segments: int | None = None
+    merge: bool = True
+    source: Literal["chapter", "translation"] = "chapter"
+
+
 def create_app(
     data_dir: Path | str | None = None,
     config_path: Path | str | None = None,
     autostart_jobs: bool = True,
+    use_fake_clients: bool = False,
 ) -> FastAPI:
     config_file = Path(config_path or "config.yaml")
     loaded_config, config_error = _load_or_default_config(
@@ -57,7 +79,14 @@ def create_app(
     storage.initialize()
     repository = Repository(resolved_data_dir / "app.db")
     repository.initialize()
-    runner = JobRunner(repository, storage, tts_max_chars=loaded_config.tts.max_request_chars)
+    runner = JobRunner(
+        repository,
+        storage,
+        llm_client=_FakeLLMClient() if use_fake_clients else None,
+        tts_client=_FakeTTSClient() if use_fake_clients else _tts_client_from_config(loaded_config),
+        audio_builder=_FakeAudioBuilder() if use_fake_clients else None,
+        tts_max_chars=loaded_config.tts.max_request_chars,
+    )
 
     if autostart_jobs:
         repository.reset_running_to_pending()
@@ -192,6 +221,24 @@ def create_app(
     def get_job(job_id: int) -> dict[str, Any]:
         return _job_dict(_get_job_or_404(repository, job_id))
 
+    @app.post("/api/jobs/{job_id}/pause")
+    def pause_job(job_id: int) -> dict[str, Any]:
+        _get_job_or_404(repository, job_id)
+        repository.request_pause(job_id)
+        return _job_dict(repository.get_job(job_id))
+
+    @app.post("/api/jobs/{job_id}/resume")
+    def resume_job(job_id: int) -> dict[str, Any]:
+        _get_job_or_404(repository, job_id)
+        repository.resume_job(job_id)
+        return _job_dict(repository.get_job(job_id))
+
+    @app.post("/api/jobs/{job_id}/stop")
+    def stop_job(job_id: int) -> dict[str, Any]:
+        _get_job_or_404(repository, job_id)
+        repository.request_stop(job_id)
+        return _job_dict(repository.get_job(job_id))
+
     @app.get("/api/books/{book_id}/chapters")
     def list_chapters(book_id: int) -> list[dict[str, Any]]:
         _get_book_or_404(repository, book_id)
@@ -234,7 +281,358 @@ def create_app(
             raise HTTPException(status_code=500, detail="could not create chapter archive") from exc
         return FileResponse(zip_path, filename=f"chapter-{chapter.chapter_index + 1}.zip", media_type="application/zip")
 
+    @app.post("/api/chapters/{chapter_id}/translate")
+    async def translate_chapter(
+        chapter_id: int,
+        request: TranslateRequest,
+        background_tasks: BackgroundTasks,
+    ) -> dict[str, Any]:
+        _get_chapter_or_404(repository, chapter_id)
+        translation_config = _translation_config_for_request(loaded_config.translation, request)
+        parallel_segments = _bounded_parallel(
+            request.parallel_segments,
+            loaded_config.limits.max_parallel_translation_segments,
+        )
+        if autostart_jobs:
+            job = _create_translation_job(
+                repository,
+                storage,
+                chapter_id,
+                translation_config,
+                parallel_segments,
+            )
+            background_tasks.add_task(
+                runner.run_translation_job,
+                job.id,
+                translation_config,
+                parallel_segments,
+            )
+            return _job_dict(job)
+        job = await runner.start_translation(
+            chapter_id,
+            translation_config,
+            parallel_segments,
+            api_key_override=request.api_key,
+        )
+        return _job_dict(job)
+
+    @app.post("/api/chapters/{chapter_id}/tts")
+    async def tts_chapter(
+        chapter_id: int,
+        request: TTSRequest,
+        background_tasks: BackgroundTasks,
+    ) -> dict[str, Any]:
+        chapter = _get_chapter_or_404(repository, chapter_id)
+        if request.source == "translation" and chapter.translation_path is None:
+            raise HTTPException(status_code=404, detail="translation not found")
+        tts_client = _tts_client_for_request(loaded_config, request, use_fake_clients)
+        if tts_client is None:
+            raise HTTPException(status_code=400, detail="TTS API key is required")
+        runner.tts_client = tts_client
+
+        voice = request.voice or loaded_config.tts.default_voice or "Cherry"
+        parallel_segments = _bounded_parallel(
+            request.parallel_segments or loaded_config.tts.default_parallel_segments,
+            loaded_config.limits.max_parallel_tts_segments,
+        )
+        if autostart_jobs:
+            job = _create_tts_job(
+                repository,
+                storage,
+                chapter,
+                request.source,
+                runner.tts_max_chars,
+                voice,
+                request.context,
+                parallel_segments,
+                request.merge,
+            )
+            background_tasks.add_task(
+                runner.run_tts_job,
+                job.id,
+                voice,
+                request.context,
+                parallel_segments,
+                request.merge,
+            )
+            return _job_dict(job)
+        if request.source == "translation":
+            job = _create_tts_job(
+                repository,
+                storage,
+                chapter,
+                request.source,
+                runner.tts_max_chars,
+                voice,
+                request.context,
+                parallel_segments,
+                request.merge,
+            )
+            return _job_dict(
+                await runner.run_tts_job(
+                    job.id,
+                    voice=voice,
+                    context=request.context,
+                    parallel_segments=parallel_segments,
+                    merge=request.merge,
+                )
+            )
+        job = await runner.start_tts(
+            chapter_id,
+            voice=voice,
+            context=request.context,
+            parallel_segments=parallel_segments,
+            merge=request.merge,
+        )
+        return _job_dict(job)
+
+    @app.get("/api/chapters/{chapter_id}/audio")
+    def chapter_audio_metadata(chapter_id: int) -> dict[str, Any]:
+        chapter = _get_chapter_or_404(repository, chapter_id)
+        audio_path = chapter.audio_path
+        return {
+            "chapter_id": chapter.id,
+            "audio_path": audio_path,
+            "download_url": f"/api/chapters/{chapter.id}/audio/download" if audio_path else None,
+        }
+
+    @app.post("/api/jobs/{job_id}/audio/merge")
+    def merge_job_audio(job_id: int) -> dict[str, Any]:
+        job = _get_job_or_404(repository, job_id)
+        if job.kind != JobKind.TTS:
+            raise HTTPException(status_code=400, detail="job is not a TTS job")
+        merged = runner.merge_chapter_audio(job_id)
+        if merged is None:
+            return {"merged": False, "job": _job_dict(repository.get_job(job_id))}
+        refreshed_job = repository.get_job(job_id)
+        audio_path = repository.get_chapter(refreshed_job.chapter_id).audio_path if refreshed_job.chapter_id else None
+        return {"merged": True, "audio_path": audio_path, "job": _job_dict(refreshed_job)}
+
+    @app.get("/api/chapters/{chapter_id}/translation/download.txt", response_class=PlainTextResponse)
+    def download_translation_text(chapter_id: int) -> PlainTextResponse:
+        chapter = _get_chapter_or_404(repository, chapter_id)
+        if chapter.translation_path is None:
+            raise HTTPException(status_code=404, detail="translation not found")
+        return PlainTextResponse(
+            _read_artifact_text(storage, chapter.translation_path),
+            media_type="text/plain; charset=utf-8",
+        )
+
+    @app.get("/api/chapters/{chapter_id}/audio/download")
+    def download_audio(chapter_id: int) -> FileResponse:
+        chapter = _get_chapter_or_404(repository, chapter_id)
+        if chapter.audio_path is None:
+            raise HTTPException(status_code=404, detail="audio not found")
+        return _file_response(
+            storage,
+            chapter.audio_path,
+            filename=f"chapter-{chapter.chapter_index + 1}.wav",
+            media_type="audio/wav",
+        )
+
+    @app.get("/api/chapters/{chapter_id}/translation/download.zip")
+    def download_translation_zip(chapter_id: int) -> FileResponse:
+        chapter = _get_chapter_or_404(repository, chapter_id)
+        if chapter.translation_path is None:
+            raise HTTPException(status_code=404, detail="translation not found")
+        return _zip_response(
+            storage,
+            f"books/{chapter.book_id}/downloads/translation-{chapter.chapter_index:04d}.zip",
+            [chapter.translation_path],
+            f"translation-{chapter.chapter_index + 1}.zip",
+        )
+
+    @app.get("/api/chapters/{chapter_id}/audio/download.zip")
+    def download_audio_zip(chapter_id: int) -> FileResponse:
+        chapter = _get_chapter_or_404(repository, chapter_id)
+        if chapter.audio_path is None:
+            raise HTTPException(status_code=404, detail="audio not found")
+        return _zip_response(
+            storage,
+            f"books/{chapter.book_id}/downloads/audio-{chapter.chapter_index:04d}.zip",
+            [chapter.audio_path],
+            f"audio-{chapter.chapter_index + 1}.zip",
+        )
+
     return app
+
+
+def _translation_config_for_request(config: TranslationConfig, request: TranslateRequest) -> TranslationConfig:
+    provider_name = request.provider or config.active_provider_name
+    if provider_name not in config.providers:
+        raise HTTPException(status_code=400, detail="translation provider not found")
+    if not request.api_key:
+        return replace(config, active_provider_name=provider_name)
+    providers = dict(config.providers)
+    providers[provider_name] = replace(providers[provider_name], api_key=request.api_key)
+    return replace(config, providers=providers, active_provider_name=provider_name)
+
+
+def _create_translation_job(
+    repository: Repository,
+    storage: LocalStorage,
+    chapter_id: int,
+    config: TranslationConfig,
+    parallel_segments: int,
+) -> Job:
+    chapter = repository.get_chapter(chapter_id)
+    source_segments = _chapter_segments(storage.read_text(chapter.text_path), config.segment_limit)
+    job = repository.create_job(
+        chapter.book_id,
+        chapter.id,
+        JobKind.TRANSLATE,
+        len(source_segments),
+        {"parallel_segments": parallel_segments},
+    )
+    if not source_segments:
+        repository.fail_job(job.id, "chapter has no translatable text")
+        return repository.get_job(job.id)
+    repository.create_segments(job.id, chapter.id, source_segments)
+    return job
+
+
+def _create_tts_job(
+    repository: Repository,
+    storage: LocalStorage,
+    chapter: Chapter,
+    source: Literal["chapter", "translation"],
+    segment_limit: int,
+    voice: str,
+    context: str,
+    parallel_segments: int,
+    merge: bool,
+) -> Job:
+    source_path = chapter.translation_path if source == "translation" else chapter.text_path
+    if source_path is None:
+        raise HTTPException(status_code=404, detail="translation not found")
+    source_segments = _chapter_segments(storage.read_text(source_path), segment_limit)
+    job = repository.create_job(
+        chapter.book_id,
+        chapter.id,
+        JobKind.TTS,
+        len(source_segments),
+        {
+            "voice": voice,
+            "context": context,
+            "parallel_segments": parallel_segments,
+            "merge": merge,
+            "source": source,
+        },
+    )
+    if not source_segments:
+        repository.fail_job(job.id, "chapter has no text to synthesize")
+        return repository.get_job(job.id)
+    repository.create_segments(job.id, chapter.id, source_segments)
+    return job
+
+
+def _bounded_parallel(value: int | None, maximum: int) -> int:
+    if value is None:
+        return max(1, maximum)
+    if value < 1:
+        raise HTTPException(status_code=400, detail="parallel_segments must be positive")
+    return min(value, max(1, maximum))
+
+
+def _tts_client_from_config(config: AppConfig) -> MimoTTSClient | None:
+    try:
+        return MimoTTSClient(
+            api_key=config.tts.api_key,
+            base_url=config.tts.base_url,
+            model=config.tts.model,
+        )
+    except MissingMimoApiKey:
+        return None
+
+
+def _tts_client_for_request(
+    config: AppConfig,
+    request: TTSRequest,
+    use_fake_clients: bool,
+) -> Any | None:
+    if use_fake_clients:
+        return _FakeTTSClient()
+    if not any([request.api_key, request.base_url, request.model]):
+        return _tts_client_from_config(config)
+    try:
+        return MimoTTSClient(
+            api_key=request.api_key or config.tts.api_key,
+            base_url=request.base_url or config.tts.base_url,
+            model=request.model or config.tts.model,
+        )
+    except MissingMimoApiKey:
+        return None
+
+
+def _file_response(
+    storage: LocalStorage,
+    relative_path: str,
+    filename: str,
+    media_type: str,
+) -> FileResponse:
+    try:
+        path = storage.resolve_artifact(relative_path)
+        if not path.is_file():
+            raise FileNotFoundError(relative_path)
+    except (OSError, PathSafetyError) as exc:
+        raise HTTPException(status_code=404, detail="artifact not found") from exc
+    return FileResponse(path, filename=filename, media_type=media_type)
+
+
+def _zip_response(
+    storage: LocalStorage,
+    output_relative_path: str,
+    artifact_paths: list[str],
+    filename: str,
+) -> FileResponse:
+    try:
+        zip_path = storage.create_zip(output_relative_path, artifact_paths)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="artifact not found") from exc
+    except (OSError, PathSafetyError) as exc:
+        raise HTTPException(status_code=500, detail="could not create archive") from exc
+    return FileResponse(zip_path, filename=filename, media_type="application/zip")
+
+
+class _FakeLLMClient:
+    async def translate(
+        self,
+        provider: ProviderConfig,
+        system_prompt: str,
+        user_prompt: str,
+        timeout_seconds: int,
+        max_retries: int,
+    ) -> str:
+        return f"译文：{user_prompt}"
+
+
+class _FakeTTSClient:
+    def synthesize(self, text: str, voice: str, context: str, output_path: Path) -> Path:
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_bytes(_minimal_wav_bytes())
+        return output_path
+
+
+class _FakeAudioBuilder(AudioBuilder):
+    def __init__(self) -> None:
+        super().__init__(ffmpeg_path=None)
+
+    def merge_audio(self, input_paths: list[Path], output_path: Path) -> Path | None:
+        if not input_paths:
+            return None
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_bytes(input_paths[0].read_bytes())
+        return output_path
+
+
+def _minimal_wav_bytes() -> bytes:
+    buffer = io.BytesIO()
+    with wave.open(buffer, "wb") as wav:
+        wav.setnchannels(1)
+        wav.setsampwidth(2)
+        wav.setframerate(8000)
+        wav.writeframes(b"\x00\x00" * 8)
+    return buffer.getvalue()
 
 
 def _load_or_default_config(config_path: Path, data_dir: Path | None) -> tuple[AppConfig, str | None]:
