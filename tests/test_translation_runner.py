@@ -354,3 +354,33 @@ async def test_translation_runner_does_not_complete_active_segment_after_stop(tm
     assert segment.status == SegmentStatus.STOPPED
     assert segment.output_path is None
     assert repo.get_chapter(chapter.id).translation_path is None
+
+
+@pytest.mark.asyncio
+async def test_translation_runner_does_not_attach_translation_after_chapter_edit(tmp_path: Path):
+    repo = Repository(tmp_path / "app.db")
+    repo.initialize()
+    storage = LocalStorage(tmp_path)
+    chapter = _create_chapter(repo, storage, "一二三四", tmp_path)
+    config = _translation_config(segment_limit=4)
+    llm = BlockingLLMClient()
+    runner = JobRunner(repo, storage, llm_client=llm)
+    job = repo.create_job(
+        chapter.book_id,
+        chapter.id,
+        JobKind.TRANSLATE,
+        1,
+        {"chapter_revision": chapter.content_revision},
+    )
+    repo.create_segments(job.id, chapter.id, ["一二三四"])
+
+    task = asyncio.create_task(runner.run_translation_job(job.id, config, parallel_segments=1))
+    await asyncio.wait_for(llm.started.wait(), 5)
+    repo.update_chapter(chapter.id, chapter.title, chapter.text_path, chapter.char_count, chapter.paragraph_count)
+    llm.release.set()
+
+    await task
+
+    completed = repo.get_job(job.id)
+    assert completed.status == JobStatus.COMPLETED
+    assert repo.get_chapter(chapter.id).translation_path is None

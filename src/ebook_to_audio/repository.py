@@ -28,6 +28,7 @@ class Repository:
             conn.executescript(SCHEMA)
             _ensure_chapter_translation_path(conn)
             _ensure_chapter_audio_path(conn)
+            _ensure_chapter_content_revision(conn)
             _ensure_job_error_message(conn)
             conn.execute(
                 """
@@ -173,12 +174,39 @@ class Repository:
                     char_count = ?,
                     paragraph_count = ?,
                     translation_path = NULL,
-                    audio_path = NULL
+                    audio_path = NULL,
+                    content_revision = content_revision + 1
                 WHERE id = ?
                 """,
                 (title, text_path, char_count, paragraph_count, chapter_id),
             )
             return self._get_chapter(chapter_id, conn)
+
+    def promote_chapter_translation_path_if_current_job(self, job_id: int, translation_path: str) -> bool:
+        with self._connection() as conn:
+            job = self.get_job(job_id, conn=conn)
+            if job.kind != JobKind.TRANSLATE or job.chapter_id is None:
+                return False
+            revision = _option_content_revision(job.options)
+            if revision is None:
+                return False
+            cursor = conn.execute(
+                """
+                UPDATE chapters
+                SET translation_path = ?
+                WHERE id = ?
+                  AND content_revision = ?
+                  AND NOT EXISTS (
+                      SELECT 1
+                      FROM jobs
+                      WHERE jobs.chapter_id = ?
+                        AND jobs.kind = ?
+                        AND jobs.id > ?
+                  )
+                """,
+                (translation_path, job.chapter_id, revision, job.chapter_id, JobKind.TRANSLATE, job.id),
+            )
+            return cursor.rowcount == 1
 
     def update_chapter_translation_path(self, chapter_id: int, translation_path: str) -> None:
         with self._connection() as conn:
@@ -207,11 +235,15 @@ class Repository:
             job = self.get_job(job_id, conn=conn)
             if job.kind != JobKind.TTS or job.chapter_id is None:
                 return False
+            revision = _option_content_revision(job.options)
+            if revision is None:
+                return False
             cursor = conn.execute(
                 """
                 UPDATE chapters
                 SET audio_path = ?
                 WHERE id = ?
+                  AND content_revision = ?
                   AND NOT EXISTS (
                       SELECT 1
                       FROM jobs
@@ -220,7 +252,7 @@ class Repository:
                         AND jobs.id > ?
                   )
                 """,
-                (audio_path, job.chapter_id, job.chapter_id, JobKind.TTS, job.id),
+                (audio_path, job.chapter_id, revision, job.chapter_id, JobKind.TTS, job.id),
             )
             return cursor.rowcount == 1
 
@@ -637,6 +669,7 @@ class Repository:
             paragraph_count=int(row["paragraph_count"]),
             translation_path=row["translation_path"],
             audio_path=row["audio_path"],
+            content_revision=int(row["content_revision"]),
             created_at=str(row["created_at"]),
         )
 
@@ -696,6 +729,7 @@ CREATE TABLE IF NOT EXISTS chapters (
     paragraph_count INTEGER NOT NULL,
     translation_path TEXT,
     audio_path TEXT,
+    content_revision INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(book_id, chapter_index)
 );
@@ -756,6 +790,17 @@ def _ensure_chapter_audio_path(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE chapters ADD COLUMN audio_path TEXT")
 
 
+def _ensure_chapter_content_revision(conn: sqlite3.Connection) -> None:
+    columns = {
+        str(row["name"])
+        for row in conn.execute("PRAGMA table_info(chapters)").fetchall()
+    }
+    if "content_revision" not in columns:
+        conn.execute(
+            "ALTER TABLE chapters ADD COLUMN content_revision INTEGER NOT NULL DEFAULT 0"
+        )
+
+
 def _ensure_job_error_message(conn: sqlite3.Connection) -> None:
     columns = {
         str(row["name"])
@@ -763,3 +808,12 @@ def _ensure_job_error_message(conn: sqlite3.Connection) -> None:
     }
     if "error_message" not in columns:
         conn.execute("ALTER TABLE jobs ADD COLUMN error_message TEXT")
+
+
+def _option_content_revision(options: dict[str, Any]) -> int | None:
+    value = options.get("chapter_revision")
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int) and value >= 0:
+        return value
+    return None

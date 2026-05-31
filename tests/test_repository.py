@@ -150,13 +150,54 @@ def test_promote_chapter_audio_path_only_for_latest_tts_job(tmp_path: Path):
     repo.initialize()
     book = repo.create_book("Title", "txt", "book.txt", "s", "f", "c")
     chapter = repo.create_chapter(book.id, 0, "第一章", "books/1/chapters/0000.txt", 10, 2)
-    older = repo.create_job(book.id, chapter.id, JobKind.TTS, total_units=1, options={})
-    newer = repo.create_job(book.id, chapter.id, JobKind.TTS, total_units=1, options={})
+    older = repo.create_job(
+        book.id,
+        chapter.id,
+        JobKind.TTS,
+        total_units=1,
+        options={"chapter_revision": chapter.content_revision},
+    )
+    newer = repo.create_job(
+        book.id,
+        chapter.id,
+        JobKind.TTS,
+        total_units=1,
+        options={"chapter_revision": chapter.content_revision},
+    )
 
     assert repo.promote_chapter_audio_path_if_latest_tts_job(older.id, "old.wav") is False
     assert repo.get_chapter(chapter.id).audio_path is None
     assert repo.promote_chapter_audio_path_if_latest_tts_job(newer.id, "new.wav") is True
     assert repo.get_chapter(chapter.id).audio_path == "new.wav"
+
+
+def test_chapter_update_revision_blocks_stale_artifact_promotion(tmp_path: Path):
+    repo = Repository(tmp_path / "app.db")
+    repo.initialize()
+    book = repo.create_book("Title", "txt", "book.txt", "s", "f", "c")
+    chapter = repo.create_chapter(book.id, 0, "第一章", "books/1/chapters/0000.txt", 10, 2)
+    tts_job = repo.create_job(
+        book.id,
+        chapter.id,
+        JobKind.TTS,
+        total_units=1,
+        options={"chapter_revision": chapter.content_revision},
+    )
+    translate_job = repo.create_job(
+        book.id,
+        chapter.id,
+        JobKind.TRANSLATE,
+        total_units=1,
+        options={"chapter_revision": chapter.content_revision},
+    )
+
+    updated = repo.update_chapter(chapter.id, "第一章 改", chapter.text_path, 3, 1)
+
+    assert updated.content_revision == chapter.content_revision + 1
+    assert repo.promote_chapter_audio_path_if_latest_tts_job(tts_job.id, "old.wav") is False
+    assert repo.promote_chapter_translation_path_if_current_job(translate_job.id, "old.txt") is False
+    assert repo.get_chapter(chapter.id).audio_path is None
+    assert repo.get_chapter(chapter.id).translation_path is None
 
 
 def test_refresh_job_progress_uses_segment_count_when_total_units_differs(tmp_path: Path):

@@ -707,6 +707,7 @@ def _create_translation_job(
             "prompt": prompt,
             "context": context,
             "parallel_segments": parallel_segments,
+            "chapter_revision": chapter.content_revision,
         },
     )
     if not source_segments:
@@ -748,6 +749,7 @@ def _create_tts_job(
             "provider": provider,
             "base_url": base_url,
             "model": model,
+            "chapter_revision": chapter.content_revision,
         },
     )
     repository.update_chapter_audio_path(chapter.id, None)
@@ -787,6 +789,15 @@ def _option_int_or_none(options: dict[str, Any], key: str) -> int | None:
     return None
 
 
+def _option_non_negative_int(options: dict[str, Any], key: str) -> int | None:
+    value = options.get(key)
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int) and value >= 0:
+        return value
+    return None
+
+
 def _option_source(options: dict[str, Any]) -> Literal["chapter", "translation"]:
     return "translation" if options.get("source") == "translation" else "chapter"
 
@@ -817,7 +828,11 @@ def _audio_segments_for_chapter(repository: Repository, chapter: Chapter) -> lis
 
 def _latest_tts_job_for_chapter(repository: Repository, chapter: Chapter) -> Job | None:
     for job in repository.list_jobs(chapter.book_id):
-        if job.chapter_id == chapter.id and job.kind == JobKind.TTS:
+        if (
+            job.chapter_id == chapter.id
+            and job.kind == JobKind.TTS
+            and _option_non_negative_int(job.options, "chapter_revision") == chapter.content_revision
+        ):
             return job
     return None
 

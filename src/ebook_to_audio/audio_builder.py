@@ -101,10 +101,19 @@ def _merge_wav_files(input_paths: list[Path], output_path: Path) -> Path | None:
         with wave.open(str(output_path), "wb") as output:
             for input_path in input_paths:
                 with wave.open(str(input_path), "rb") as source:
-                    source_params = source.getparams()
+                    source_params = (
+                        source.getnchannels(),
+                        source.getsampwidth(),
+                        source.getframerate(),
+                        source.getcomptype(),
+                        source.getcompname(),
+                    )
                     if params is None:
                         params = source_params
-                        output.setparams(params)
+                        output.setnchannels(source_params[0])
+                        output.setsampwidth(source_params[1])
+                        output.setframerate(source_params[2])
+                        output.setcomptype(source_params[3], source_params[4])
                     elif source_params != params:
                         raise ValueError("WAV files do not share audio parameters")
                     output.writeframes(source.readframes(source.getnframes()))
