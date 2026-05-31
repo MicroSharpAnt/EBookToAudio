@@ -123,6 +123,19 @@ class JobRunner:
                     config.request_timeout_seconds,
                     config.max_retries,
                 )
+                current_job = self.repository.get_job(job_id)
+                if current_job.pause_requested or current_job.status == JobStatus.PAUSED:
+                    self.repository.release_running_segment(
+                        segment.id,
+                        SegmentStatus.PENDING,
+                    )
+                    return
+                if current_job.stop_requested or current_job.status == JobStatus.STOPPED:
+                    self.repository.release_running_segment(
+                        segment.id,
+                        SegmentStatus.STOPPED,
+                    )
+                    return
                 chapter = self.repository.get_chapter(segment.chapter_id)
                 output_path = self.storage.translation_path(
                     chapter.book_id,

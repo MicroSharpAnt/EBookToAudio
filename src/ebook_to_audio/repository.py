@@ -171,7 +171,9 @@ class Repository:
                 SET title = ?,
                     text_path = ?,
                     char_count = ?,
-                    paragraph_count = ?
+                    paragraph_count = ?,
+                    translation_path = NULL,
+                    audio_path = NULL
                 WHERE id = ?
                 """,
                 (title, text_path, char_count, paragraph_count, chapter_id),

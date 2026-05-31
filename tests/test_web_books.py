@@ -25,9 +25,13 @@ def test_upload_clean_split_edit_and_download_chapter(tmp_path: Path):
 
     chapters = client.get(f"/api/books/{book_id}/chapters").json()
     chapter_id = chapters[0]["id"]
+    app.state.repository.update_chapter_translation_path(chapter_id, "books/1/translations/0000.txt")
+    app.state.repository.update_chapter_audio_path(chapter_id, "books/1/audio/0000/jobs/1/chapter.wav")
     update = client.put(f"/api/chapters/{chapter_id}", json={"title": "第一章 修改", "text": "新正文"})
     assert update.status_code == 200
     assert update.json()["char_count"] == 3
+    assert update.json()["translation_path"] is None
+    assert update.json()["audio_path"] is None
 
     download = client.get(f"/api/chapters/{chapter_id}/download.txt")
     assert download.status_code == 200
