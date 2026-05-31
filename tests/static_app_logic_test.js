@@ -34,3 +34,52 @@ assert.strictEqual(
   25,
 );
 assert.strictEqual(sandbox.window.EBookToAudio.statusLabel("completed_with_errors"), "部分完成");
+assert.strictEqual(sandbox.window.EBookToAudio.wordCountLabel({ char_count: 1200 }), "约 600 词");
+function plain(value) {
+  return JSON.parse(JSON.stringify(value));
+}
+
+assert.deepStrictEqual(
+  plain(sandbox.window.EBookToAudio.buildTranslatePayload({
+    translationProvider: "deepseek",
+    translationApiKey: "sk-translation",
+    translationPrompt: "请翻译为现代中文",
+    translationContext: "保留人名",
+    translationParallel: 2,
+  })),
+  {
+    provider: "deepseek",
+    api_key: "sk-translation",
+    prompt: "请翻译为现代中文",
+    context: "保留人名",
+    parallel_segments: 2,
+  },
+);
+assert.strictEqual(
+  sandbox.window.EBookToAudio.buildTranslatePayload({}).prompt,
+  "将文章翻译为中文",
+);
+assert.deepStrictEqual(
+  plain(sandbox.window.EBookToAudio.jobActionOptions(
+    { id: 10, kind: "translate" },
+    "resume",
+    { translationApiKey: "sk-translation", ttsApiKey: "sk-tts" },
+  )),
+  { method: "POST", body: JSON.stringify({ api_key: "sk-translation" }) },
+);
+assert.deepStrictEqual(
+  plain(sandbox.window.EBookToAudio.jobActionOptions(
+    { id: 11, kind: "tts" },
+    "resume",
+    { translationApiKey: "sk-translation", ttsApiKey: "sk-tts" },
+  )),
+  { method: "POST", body: JSON.stringify({ api_key: "sk-tts" }) },
+);
+assert.deepStrictEqual(
+  plain(sandbox.window.EBookToAudio.jobActionOptions(
+    { id: 11, kind: "tts" },
+    "pause",
+    { ttsApiKey: "sk-tts" },
+  )),
+  { method: "POST" },
+);

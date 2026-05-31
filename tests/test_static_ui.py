@@ -18,6 +18,7 @@ def test_static_ui_served_with_required_labels(tmp_path: Path):
         "去除文章多余空格等字符",
         "按章节分成多个txt",
         "将文章翻译为中文",
+        "翻译提示词",
     ]:
         assert label in response.text
 
@@ -29,3 +30,14 @@ def test_static_assets_are_served(tmp_path: Path):
     for path in ["/static/styles.css", "/static/app.js"]:
         response = client.get(path)
         assert response.status_code == 200
+
+
+def test_static_ui_exposes_word_count_label(tmp_path: Path):
+    app = create_app(data_dir=tmp_path, config_path=tmp_path / "missing.yaml", autostart_jobs=False)
+    client = TestClient(app)
+
+    response = client.get("/static/app.js")
+
+    assert response.status_code == 200
+    assert "约" in response.text
+    assert "词" in response.text
