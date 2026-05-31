@@ -11,75 +11,35 @@ def split_text(text: str, max_chars: int) -> list[str]:
     if len(normalized) <= max_chars:
         return [normalized]
 
+    return _split_chunk(normalized, max_chars)
+
+
+def _split_chunk(text: str, max_chars: int) -> list[str]:
     segments: list[str] = []
-    current = ""
+    remaining = text
 
-    for paragraph in _paragraph_chunks(normalized):
-        if len(paragraph) > max_chars:
-            if current:
-                segments.append(current)
-                current = ""
-            segments.extend(_split_long_paragraph(paragraph, max_chars))
-        elif not current:
-            current = paragraph
-        elif len(current) + len("\n\n") + len(paragraph) <= max_chars:
-            current += "\n\n" + paragraph
-        else:
-            segments.append(current)
-            current = paragraph
+    while len(remaining) > max_chars:
+        split_index = _preferred_split_index(remaining, max_chars) or max_chars
+        segments.append(remaining[:split_index])
+        remaining = remaining[split_index:]
 
-    if current:
-        segments.append(current)
+    if remaining:
+        segments.append(remaining)
 
     return segments
 
 
-def _paragraph_chunks(text: str) -> list[str]:
-    return [part for part in text.split("\n\n") if part.strip()] or [text]
+def _preferred_split_index(text: str, max_chars: int) -> int | None:
+    blank_line_index = text.rfind("\n\n", 0, max_chars + 1)
+    if blank_line_index != -1:
+        after_separator = blank_line_index + 2
+        if after_separator <= max_chars:
+            return after_separator
+        if blank_line_index == max_chars:
+            return blank_line_index
 
+    line_index = text.rfind("\n", 0, max_chars)
+    if line_index != -1:
+        return line_index + 1
 
-def _split_long_paragraph(paragraph: str, max_chars: int) -> list[str]:
-    line_segments = _split_by_lines(paragraph, max_chars)
-    segments: list[str] = []
-
-    for line in line_segments:
-        if not line.strip():
-            continue
-        if len(line) <= max_chars:
-            segments.append(line)
-        else:
-            segments.extend(segment for segment in _hard_split(line, max_chars) if segment.strip())
-
-    return segments
-
-
-def _split_by_lines(text: str, max_chars: int) -> list[str]:
-    lines = text.splitlines(keepends=True)
-    if len(lines) <= 1:
-        return [text]
-
-    segments: list[str] = []
-    current = ""
-
-    for line in lines:
-        if len(line) > max_chars:
-            if current:
-                segments.append(current)
-                current = ""
-            segments.append(line)
-        elif not current:
-            current = line
-        elif len(current) + len(line) <= max_chars:
-            current += line
-        else:
-            segments.append(current)
-            current = line
-
-    if current:
-        segments.append(current)
-
-    return segments
-
-
-def _hard_split(text: str, max_chars: int) -> list[str]:
-    return [text[index : index + max_chars] for index in range(0, len(text), max_chars)]
+    return None

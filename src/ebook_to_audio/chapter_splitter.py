@@ -44,6 +44,7 @@ def _split_by_headings(text: str) -> list[SplitChapter]:
     chapters: list[SplitChapter] = []
     current_title: str | None = None
     current_lines: list[str] = []
+    front_matter_lines: list[str] = []
 
     for raw_line in text.split("\n"):
         line = raw_line.strip()
@@ -54,9 +55,15 @@ def _split_by_headings(text: str) -> list[SplitChapter]:
             current_lines = []
         elif current_title is not None:
             current_lines.append(raw_line)
+        else:
+            front_matter_lines.append(raw_line)
 
     if current_title is not None:
         chapters.append(SplitChapter(title=current_title, text="\n".join(current_lines).strip()))
+
+    front_matter = "\n".join(front_matter_lines).strip()
+    if front_matter and len(chapters) >= 2:
+        chapters.insert(0, SplitChapter(title="前言", text=front_matter))
 
     return chapters
 
