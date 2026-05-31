@@ -4,6 +4,7 @@ from dataclasses import asdict, replace
 import io
 import json
 from pathlib import Path
+import re
 import shutil
 from typing import Any, Literal
 import wave
@@ -39,6 +40,7 @@ from .text_cleaner import clean_text
 
 
 UPLOAD_READ_CHUNK_BYTES = 64 * 1024
+_DOWNLOAD_FILENAME_UNSAFE_RE = re.compile(r"[\x00-\x1f\x7f/\\:*?\"<>|]+")
 _TERMINAL_JOB_STATUSES = {
     JobStatus.COMPLETED,
     JobStatus.COMPLETED_WITH_ERRORS,
@@ -585,10 +587,11 @@ def create_app(
         chapter = _get_chapter_or_404(repository, chapter_id)
         if chapter.audio_path is None:
             raise HTTPException(status_code=404, detail="audio not found")
+        book = _get_book_or_404(repository, chapter.book_id)
         return _file_response(
             storage,
             chapter.audio_path,
-            filename=f"chapter-{chapter.chapter_index + 1}.wav",
+            filename=_merged_audio_download_filename(book, chapter),
             media_type="audio/wav",
         )
 
@@ -873,6 +876,21 @@ def _audio_segment_dict(chapter_id: int, segment: Segment) -> dict[str, Any]:
         "output_path": segment.output_path,
         "download_url": f"/api/chapters/{chapter_id}/audio/segments/{segment.id}/download",
     }
+
+
+def _merged_audio_download_filename(book: Book, chapter: Chapter) -> str:
+    book_name = _download_filename_part(book.title, "book")
+    chapter_name = _download_filename_part(
+        chapter.title,
+        f"chapter-{chapter.chapter_index + 1}",
+    )
+    return f"{book_name} - {chapter_name}.wav"
+
+
+def _download_filename_part(value: str, fallback: str) -> str:
+    cleaned = _DOWNLOAD_FILENAME_UNSAFE_RE.sub(" ", value).strip()
+    cleaned = re.sub(r"\s+", " ", cleaned)
+    return (cleaned or fallback)[:120].rstrip()
 
 
 def _chapter_audio_paths(repository: Repository, chapter: Chapter) -> list[str]:
