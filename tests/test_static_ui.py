@@ -32,6 +32,13 @@ def test_static_assets_are_served(tmp_path: Path):
         assert response.status_code == 200
 
 
+def test_readme_uses_fastapi_factory_start_command():
+    readme = Path("README.md").read_text(encoding="utf-8")
+
+    assert 'uvicorn "ebook_to_audio.web:create_app" --factory --reload' in readme
+    assert "ebook_to_audio.app:app" not in readme
+
+
 def test_static_ui_exposes_word_count_label(tmp_path: Path):
     app = create_app(data_dir=tmp_path, config_path=tmp_path / "missing.yaml", autostart_jobs=False)
     client = TestClient(app)

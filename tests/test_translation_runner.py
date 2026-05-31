@@ -1,4 +1,5 @@
 from pathlib import Path
+import asyncio
 
 import pytest
 
@@ -43,6 +44,26 @@ class FailingLLMClient(FakeLLMClient):
         if source_text == self.failing_source:
             raise RuntimeError("translation failed")
         return "译文:" + source_text
+
+
+class BlockingLLMClient(FakeLLMClient):
+    def __init__(self):
+        super().__init__()
+        self.started = asyncio.Event()
+        self.release = asyncio.Event()
+
+    async def translate(
+        self,
+        provider,
+        system_prompt,
+        user_prompt,
+        timeout_seconds,
+        max_retries,
+    ):
+        self.calls.append(user_prompt)
+        self.started.set()
+        await self.release.wait()
+        return "译文:" + user_prompt.split("Source:\n", 1)[1]
 
 
 class FailingSegmentStorage(LocalStorage):
@@ -306,3 +327,30 @@ async def test_translation_runner_stops_starting_segments_after_stop(tmp_path: P
         SegmentStatus.PENDING,
         SegmentStatus.PENDING,
     ]
+
+
+@pytest.mark.asyncio
+async def test_translation_runner_does_not_complete_active_segment_after_stop(tmp_path: Path):
+    repo = Repository(tmp_path / "app.db")
+    repo.initialize()
+    storage = LocalStorage(tmp_path)
+    chapter = _create_chapter(repo, storage, "一二三四", tmp_path)
+    config = _translation_config(segment_limit=4)
+    llm = BlockingLLMClient()
+    runner = JobRunner(repo, storage, llm_client=llm)
+    job = repo.create_job(chapter.book_id, chapter.id, JobKind.TRANSLATE, 1, {})
+    repo.create_segments(job.id, chapter.id, ["一二三四"])
+
+    task = asyncio.create_task(runner.run_translation_job(job.id, config, parallel_segments=1))
+    await asyncio.wait_for(llm.started.wait(), 5)
+    repo.request_stop(job.id)
+    llm.release.set()
+
+    await task
+
+    stopped = repo.get_job(job.id)
+    segment = repo.list_segments(job.id)[0]
+    assert stopped.status == JobStatus.STOPPED
+    assert segment.status == SegmentStatus.STOPPED
+    assert segment.output_path is None
+    assert repo.get_chapter(chapter.id).translation_path is None

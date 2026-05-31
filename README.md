@@ -21,7 +21,7 @@ Edit `config.yaml` with your provider API keys and model settings.
 ## Run
 
 ```bash
-uvicorn ebook_to_audio.app:app --reload
+uvicorn "ebook_to_audio.web:create_app" --factory --reload
 ```
 
 ## Test

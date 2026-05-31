@@ -1,18 +1,28 @@
 from __future__ import annotations
 
 from pathlib import Path
+import shutil
 import subprocess
+import wave
 import zipfile
 
 
 class AudioBuilder:
-    def __init__(self, ffmpeg_path: str | None):
-        self.ffmpeg_path = ffmpeg_path
+    def __init__(self, ffmpeg_path: str | None = None):
+        self._explicit_ffmpeg_path = ffmpeg_path is not None
+        self.ffmpeg_path = ffmpeg_path or shutil.which("ffmpeg")
 
     def merge_audio(self, input_paths: list[Path], output_path: Path) -> Path | None:
-        if not self.ffmpeg_path or not input_paths:
+        if not input_paths:
             return None
         output_path.parent.mkdir(parents=True, exist_ok=True)
+        if self.ffmpeg_path and self._merge_with_ffmpeg(input_paths, output_path):
+            return output_path
+        if self._explicit_ffmpeg_path:
+            return None
+        return _merge_wav_files(input_paths, output_path)
+
+    def _merge_with_ffmpeg(self, input_paths: list[Path], output_path: Path) -> bool:
         list_path = output_path.parent / "ffmpeg-list.txt"
         list_path.write_text(
             "\n".join(f"file '{_escape_concat_path(path)}'" for path in input_paths),
@@ -39,8 +49,10 @@ class AudioBuilder:
             )
         except (OSError, subprocess.CalledProcessError):
             output_path.unlink(missing_ok=True)
-            return None
-        return output_path
+            return False
+        finally:
+            list_path.unlink(missing_ok=True)
+        return True
 
     def build_zip(
         self,
@@ -81,3 +93,22 @@ def _archive_name(job_dir: Path, path: Path) -> str:
 
 def _escape_concat_path(path: Path) -> str:
     return path.as_posix().replace("\\", "\\\\").replace("'", "'\\''")
+
+
+def _merge_wav_files(input_paths: list[Path], output_path: Path) -> Path | None:
+    params = None
+    try:
+        with wave.open(str(output_path), "wb") as output:
+            for input_path in input_paths:
+                with wave.open(str(input_path), "rb") as source:
+                    source_params = source.getparams()
+                    if params is None:
+                        params = source_params
+                        output.setparams(params)
+                    elif source_params != params:
+                        raise ValueError("WAV files do not share audio parameters")
+                    output.writeframes(source.readframes(source.getnframes()))
+    except (OSError, EOFError, wave.Error, ValueError):
+        output_path.unlink(missing_ok=True)
+        return None
+    return output_path
