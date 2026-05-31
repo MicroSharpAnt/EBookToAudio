@@ -56,6 +56,7 @@ class Chapter:
     text_path: str
     char_count: int
     paragraph_count: int
+    translation_path: str | None = None
     created_at: str = ""
 
 
