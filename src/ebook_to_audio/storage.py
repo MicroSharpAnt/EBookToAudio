@@ -42,12 +42,17 @@ class LocalStorage:
         return f"{self.book_dir_path(book_id)}/cleaned.txt"
 
     def chapter_path(self, book_id: int, chapter_index: int) -> str:
+        _validate_non_negative(chapter_index, "chapter_index")
         return f"{self.book_dir_path(book_id)}/chapters/{chapter_index:04d}.txt"
 
     def translation_path(self, book_id: int, chapter_index: int, segment_index: int) -> str:
+        _validate_non_negative(chapter_index, "chapter_index")
+        _validate_non_negative(segment_index, "segment_index")
         return f"{self.book_dir_path(book_id)}/translations/{chapter_index:04d}-{segment_index:04d}.txt"
 
     def audio_path(self, book_id: int, chapter_index: int, segment_index: int, extension: str = "mp3") -> str:
+        _validate_non_negative(chapter_index, "chapter_index")
+        _validate_non_negative(segment_index, "segment_index")
         return f"{self.book_dir_path(book_id)}/audio/{chapter_index:04d}-{segment_index:04d}.{_safe_extension(extension)}"
 
     def write_text(self, relative_path: str, text: str) -> Path:
@@ -88,6 +93,11 @@ def _safe_id(value: int) -> str:
     if value < 0:
         raise PathSafetyError("unsafe storage id")
     return str(value)
+
+
+def _validate_non_negative(value: int, name: str) -> None:
+    if value < 0:
+        raise PathSafetyError(f"unsafe {name}")
 
 
 def _safe_filename(value: str) -> str:
