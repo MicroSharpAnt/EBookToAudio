@@ -218,3 +218,42 @@ async def test_tts_runner_keeps_completed_job_when_optional_ffmpeg_is_invalid(tm
 
     assert repo.get_job(job.id).status == JobStatus.COMPLETED
     assert repo.get_chapter(chapter.id).audio_path is None
+
+
+@pytest.mark.asyncio
+async def test_tts_runner_does_not_promote_older_automatic_merge(tmp_path: Path):
+    repo = Repository(tmp_path / "app.db")
+    repo.initialize()
+    storage = LocalStorage(tmp_path)
+    chapter = _create_chapter(repo, storage, tmp_path, "一二三四")
+    runner = JobRunner(
+        repo,
+        storage,
+        tts_client=FakeTTSClient(),
+        audio_builder=FakeAudioBuilder(),
+        tts_max_chars=2,
+    )
+    older = repo.create_job(chapter.book_id, chapter.id, JobKind.TTS, total_units=1, options={})
+    repo.create_segments(older.id, chapter.id, ["一二"])
+
+    newer = await runner.start_tts(
+        chapter.id,
+        voice="Cherry",
+        context="",
+        parallel_segments=1,
+        merge=True,
+    )
+    newer_audio_path = repo.get_chapter(chapter.id).audio_path
+
+    completed_older = await runner.run_tts_job(
+        older.id,
+        voice="Cherry",
+        context="",
+        parallel_segments=1,
+        merge=True,
+    )
+
+    assert completed_older.status == JobStatus.COMPLETED
+    assert newer_audio_path == f"books/1/audio/0000/jobs/{newer.id}/chapter.wav"
+    assert repo.get_chapter(chapter.id).audio_path == newer_audio_path
+    assert storage.resolve_artifact(f"books/1/audio/0000/jobs/{older.id}/chapter.wav").is_file()
