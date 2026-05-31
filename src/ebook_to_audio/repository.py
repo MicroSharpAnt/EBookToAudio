@@ -26,6 +26,7 @@ class Repository:
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         with self._connection() as conn:
             conn.executescript(SCHEMA)
+            _ensure_chapter_translation_path(conn)
             conn.execute(
                 """
                 UPDATE segments
@@ -93,6 +94,10 @@ class Repository:
             )
             return self._get_chapter(int(cursor.lastrowid), conn)
 
+    def get_chapter(self, chapter_id: int) -> Chapter:
+        with self._connection() as conn:
+            return self._get_chapter(chapter_id, conn)
+
     def list_chapters(self, book_id: int) -> list[Chapter]:
         with self._connection() as conn:
             rows = conn.execute(
@@ -100,6 +105,17 @@ class Repository:
                 (book_id,),
             ).fetchall()
         return [self._chapter_from_row(row) for row in rows]
+
+    def update_chapter_translation_path(self, chapter_id: int, translation_path: str) -> None:
+        with self._connection() as conn:
+            conn.execute(
+                """
+                UPDATE chapters
+                SET translation_path = ?
+                WHERE id = ?
+                """,
+                (translation_path, chapter_id),
+            )
 
     def create_job(
         self,
@@ -459,6 +475,7 @@ class Repository:
             text_path=str(row["text_path"]),
             char_count=int(row["char_count"]),
             paragraph_count=int(row["paragraph_count"]),
+            translation_path=row["translation_path"],
             created_at=str(row["created_at"]),
         )
 
@@ -515,6 +532,7 @@ CREATE TABLE IF NOT EXISTS chapters (
     text_path TEXT NOT NULL,
     char_count INTEGER NOT NULL,
     paragraph_count INTEGER NOT NULL,
+    translation_path TEXT,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(book_id, chapter_index)
 );
@@ -554,3 +572,12 @@ CREATE INDEX IF NOT EXISTS idx_chapters_book_id ON chapters(book_id);
 CREATE INDEX IF NOT EXISTS idx_jobs_book_id ON jobs(book_id);
 CREATE INDEX IF NOT EXISTS idx_segments_job_status ON segments(job_id, status, segment_index);
 """
+
+
+def _ensure_chapter_translation_path(conn: sqlite3.Connection) -> None:
+    columns = {
+        str(row["name"])
+        for row in conn.execute("PRAGMA table_info(chapters)").fetchall()
+    }
+    if "translation_path" not in columns:
+        conn.execute("ALTER TABLE chapters ADD COLUMN translation_path TEXT")
