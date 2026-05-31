@@ -91,6 +91,42 @@ def test_tts_endpoint_creates_audio_and_controls_are_idempotent(tmp_path: Path):
     assert audio.status_code == 200
 
 
+def test_tts_endpoint_defaults_to_translation_when_available(tmp_path: Path):
+    app = create_app(data_dir=tmp_path, config_path=tmp_path / "config.yaml", autostart_jobs=False, use_fake_clients=True)
+    client = TestClient(app)
+    chapter_id = _chapter_id(client)
+    chapter = app.state.repository.get_chapter(chapter_id)
+    translation_path = f"books/{chapter.book_id}/translations/manual.txt"
+    app.state.storage.write_text(translation_path, "译文内容")
+    app.state.repository.update_chapter_translation_path(chapter_id, translation_path)
+
+    response = client.post(
+        f"/api/chapters/{chapter_id}/tts",
+        json={"provider": "mimo", "voice": "茉莉", "parallel_segments": 1, "merge": False},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["options"]["source"] == "translation"
+    segments = app.state.repository.list_segments(response.json()["id"])
+    assert [segment.source_text for segment in segments] == ["译文内容"]
+
+
+def test_tts_endpoint_falls_back_to_chapter_when_translation_is_missing(tmp_path: Path):
+    app = create_app(data_dir=tmp_path, config_path=tmp_path / "config.yaml", autostart_jobs=False, use_fake_clients=True)
+    client = TestClient(app)
+    chapter_id = _chapter_id(client)
+
+    response = client.post(
+        f"/api/chapters/{chapter_id}/tts",
+        json={"provider": "mimo", "voice": "茉莉", "source": "translation", "parallel_segments": 1, "merge": False},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["options"]["source"] == "chapter"
+    segments = app.state.repository.list_segments(response.json()["id"])
+    assert [segment.source_text for segment in segments] == ["第一章\n一二三四五六"]
+
+
 def test_tts_endpoint_uses_request_bound_client_without_mutating_runner(tmp_path: Path):
     app = create_app(data_dir=tmp_path, config_path=tmp_path / "config.yaml", autostart_jobs=False, use_fake_clients=True)
     client = TestClient(app)

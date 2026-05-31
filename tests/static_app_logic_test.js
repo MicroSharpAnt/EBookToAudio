@@ -84,6 +84,7 @@ assert.deepStrictEqual(plain(ttsPayload), {
 assert.strictEqual(Object.prototype.hasOwnProperty.call(ttsPayload, "narration_style"), false);
 assert.strictEqual(Object.prototype.hasOwnProperty.call(ttsPayload, "character_tone"), false);
 assert.strictEqual(Object.prototype.hasOwnProperty.call(ttsPayload, "work_background"), false);
+assert.strictEqual(sandbox.window.EBookToAudio.buildTtsPayload({}).source, "translation");
 assert.deepStrictEqual(
   plain(sandbox.window.EBookToAudio.jobActionOptions(
     { id: 10, kind: "translate" },
