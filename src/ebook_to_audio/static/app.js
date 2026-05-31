@@ -3,6 +3,7 @@
 
   const terminalStatuses = new Set(["completed", "completed_with_errors", "failed", "stopped"]);
   const defaultTranslationPrompt = "将文章翻译为中文";
+  const defaultTtsVoice = "冰糖";
   const cleanLabels = {
     remove_watermarks: "去除文章水印",
     normalize_spacing: "去除文章多余空格等字符",
@@ -63,7 +64,15 @@
       translationPrompt: valueOf("#translationPrompt"),
       translationContext: valueOf("#translationContext"),
       translationParallel: numberOf("#translationParallel"),
+      ttsProvider: valueOf("#ttsProvider"),
       ttsApiKey: valueOf("#ttsApiKey"),
+      ttsBaseUrl: valueOf("#ttsBaseUrl"),
+      ttsModel: valueOf("#ttsModel"),
+      ttsVoice: valueOf("#ttsVoice"),
+      ttsContext: valueOf("#ttsContext"),
+      ttsParallel: numberOf("#ttsParallel"),
+      ttsSource: valueOf("#ttsSource"),
+      mergeAudio: $("#mergeAudio") ? Boolean($("#mergeAudio").checked) : undefined,
     };
   }
 
@@ -75,6 +84,21 @@
       prompt: source.translationPrompt || defaultTranslationPrompt,
       context: source.translationContext || "",
       parallel_segments: source.translationParallel || null,
+    };
+  }
+
+  function buildTtsPayload(settings) {
+    const source = settings || settingsFromDom();
+    return {
+      provider: source.ttsProvider || "",
+      api_key: source.ttsApiKey || "",
+      base_url: source.ttsBaseUrl || "",
+      model: source.ttsModel || "",
+      voice: source.ttsVoice || defaultTtsVoice,
+      context: source.ttsContext || "",
+      parallel_segments: source.ttsParallel || null,
+      source: source.ttsSource || "chapter",
+      merge: source.mergeAudio == null ? true : Boolean(source.mergeAudio),
     };
   }
 
@@ -216,10 +240,10 @@
       if (translationProvider && state.config.active_translation_provider) {
         translationProvider.value = state.config.active_translation_provider;
       }
-      const ttsVoice = $("#ttsVoice");
-      if (ttsVoice && state.config.tts && state.config.tts.default_voice) {
-        ttsVoice.value = state.config.tts.default_voice;
-      }
+      renderTtsVoices(
+        state.config.tts && state.config.tts.voices ? state.config.tts.voices : [],
+        state.config.tts && state.config.tts.default_voice ? state.config.tts.default_voice : defaultTtsVoice,
+      );
       const ttsParallel = $("#ttsParallel");
       if (ttsParallel && state.config.tts && state.config.tts.default_parallel_segments) {
         ttsParallel.value = state.config.tts.default_parallel_segments;
@@ -236,6 +260,29 @@
     } catch (error) {
       setStatus(`配置读取失败：${error.message}`, "error");
     }
+  }
+
+  function renderTtsVoices(voices, preferredVoice) {
+    const ttsVoice = $("#ttsVoice");
+    if (!ttsVoice) {
+      return;
+    }
+    ttsVoice.replaceChildren();
+    if (!voices.length) {
+      const option = document.createElement("option");
+      option.value = "";
+      option.textContent = "无可用音色";
+      ttsVoice.append(option);
+      return;
+    }
+    for (const voice of voices) {
+      const option = document.createElement("option");
+      option.value = String(voice);
+      option.textContent = String(voice);
+      ttsVoice.append(option);
+    }
+    const selected = voices.includes(preferredVoice) ? preferredVoice : voices[0];
+    ttsVoice.value = selected || "";
   }
 
   async function loadCurrentBook() {
@@ -551,20 +598,7 @@
     try {
       const response = await api(`/api/chapters/${chapterId}/tts`, {
         method: "POST",
-        body: JSON.stringify({
-          provider: valueOf("#ttsProvider"),
-          api_key: valueOf("#ttsApiKey"),
-          base_url: valueOf("#ttsBaseUrl"),
-          model: valueOf("#ttsModel"),
-          voice: valueOf("#ttsVoice") || "Cherry",
-          context: valueOf("#ttsContext"),
-          narration_style: valueOf("#narrationStyle"),
-          character_tone: valueOf("#characterTone"),
-          work_background: valueOf("#workBackground"),
-          parallel_segments: numberOf("#ttsParallel"),
-          source: valueOf("#ttsSource") || "chapter",
-          merge: Boolean($("#mergeAudio") && $("#mergeAudio").checked),
-        }),
+        body: JSON.stringify(buildTtsPayload()),
       });
       trackJob(response);
       setStatus(`章节 ${chapterId} TTS 任务已创建。`);
@@ -772,6 +806,8 @@
     progressPercent,
     statusLabel,
     buildTranslatePayload,
+    buildTtsPayload,
+    renderTtsVoices,
     jobActionOptions,
     activeJobs,
     chapterHasAudio,

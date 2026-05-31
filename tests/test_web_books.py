@@ -3,6 +3,7 @@ from zipfile import ZipFile
 
 from fastapi.testclient import TestClient
 
+from ebook_to_audio.config import PRESET_TTS_VOICES
 from ebook_to_audio.web import create_app
 
 
@@ -180,6 +181,35 @@ def test_invalid_file_type_bad_clean_and_missing_resources_return_api_errors(tmp
     assert client.get("/api/books/999").status_code == 404
     assert client.get("/api/jobs/999").status_code == 404
     assert client.get("/api/chapters/999").status_code == 404
+
+
+def test_config_endpoint_exposes_mimo_voice_presets_and_safe_default(tmp_path: Path):
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        """
+active_translation_provider: deepseek
+translation:
+  providers:
+    deepseek:
+      base_url: "https://api.deepseek.com"
+      api_key: "sk-test"
+      model: "deepseek-chat"
+tts:
+  base_url: "https://token-plan-cn.xiaomimimo.com/v1"
+  api_key: "mimo-key"
+  model: "mimo-v2.5-tts"
+  default_voice: "Cherry"
+""",
+        encoding="utf-8",
+    )
+    app = create_app(data_dir=tmp_path, config_path=config_path, autostart_jobs=False)
+    client = TestClient(app)
+
+    config = client.get("/api/config")
+
+    assert config.status_code == 200
+    assert config.json()["tts"]["voices"] == list(PRESET_TTS_VOICES)
+    assert config.json()["tts"]["default_voice"] == PRESET_TTS_VOICES[0]
 
 
 def test_chapter_zip_download_contains_chapter_text(tmp_path: Path):

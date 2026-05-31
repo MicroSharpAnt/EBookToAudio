@@ -79,7 +79,7 @@ def test_tts_endpoint_creates_audio_and_controls_are_idempotent(tmp_path: Path):
 
     response = client.post(
         f"/api/chapters/{chapter_id}/tts",
-        json={"voice": "Cherry", "context": "温柔旁白", "parallel_segments": 1, "merge": True},
+        json={"voice": "茉莉", "context": "温柔旁白", "parallel_segments": 1, "merge": True},
     )
 
     assert response.status_code == 200
@@ -100,7 +100,7 @@ def test_tts_endpoint_uses_request_bound_client_without_mutating_runner(tmp_path
 
     response = client.post(
         f"/api/chapters/{chapter_id}/tts",
-        json={"provider": "mimo", "voice": "Cherry", "parallel_segments": 1, "merge": True},
+        json={"provider": "mimo", "voice": "茉莉", "parallel_segments": 1, "merge": True},
     )
 
     assert response.status_code == 200
@@ -117,7 +117,7 @@ def test_tts_endpoint_exposes_segment_audio_and_book_zip(tmp_path: Path):
         f"/api/chapters/{chapter_id}/tts",
         json={
             "provider": "mimo",
-            "voice": "Cherry",
+            "voice": "茉莉",
             "context": "温柔旁白",
             "narration_style": "舒缓",
             "character_tone": "坚定",
@@ -157,11 +157,26 @@ def test_tts_endpoint_rejects_unsupported_provider_before_creating_job(tmp_path:
 
     response = client.post(
         f"/api/chapters/{chapter_id}/tts",
-        json={"provider": "unknown", "voice": "Cherry", "parallel_segments": 1},
+        json={"provider": "unknown", "voice": "茉莉", "parallel_segments": 1},
     )
 
     assert response.status_code == 400
     assert response.json()["detail"] == "unsupported TTS provider: unknown"
+    assert client.get(f"/api/chapters/{chapter_id}/audio").json()["segments"] == []
+
+
+def test_tts_endpoint_rejects_unsupported_mimo_voice_before_creating_job(tmp_path: Path):
+    app = create_app(data_dir=tmp_path, config_path=tmp_path / "config.yaml", autostart_jobs=False, use_fake_clients=True)
+    client = TestClient(app)
+    chapter_id = _chapter_id(client)
+
+    response = client.post(
+        f"/api/chapters/{chapter_id}/tts",
+        json={"provider": "mimo", "voice": "Cherry", "parallel_segments": 1},
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"].startswith("unsupported TTS voice: Cherry")
     assert client.get(f"/api/chapters/{chapter_id}/audio").json()["segments"] == []
 
 
@@ -207,7 +222,7 @@ def test_resume_tts_without_api_key_keeps_job_paused(tmp_path: Path):
         1,
         {
             "provider": "mimo",
-            "voice": "Cherry",
+            "voice": "茉莉",
             "context": "",
             "parallel_segments": 1,
             "merge": False,
@@ -259,7 +274,7 @@ def test_chapter_audio_zip_includes_segments_when_tts_merge_false(tmp_path: Path
 
     response = client.post(
         f"/api/chapters/{chapter_id}/tts",
-        json={"provider": "mimo", "voice": "Cherry", "parallel_segments": 1, "merge": False},
+        json={"provider": "mimo", "voice": "茉莉", "parallel_segments": 1, "merge": False},
     )
 
     assert response.status_code == 200
@@ -279,11 +294,11 @@ def test_repeated_tts_exposes_only_latest_job_audio(tmp_path: Path):
 
     first = client.post(
         f"/api/chapters/{chapter_id}/tts",
-        json={"provider": "mimo", "voice": "Cherry", "parallel_segments": 1, "merge": True},
+        json={"provider": "mimo", "voice": "茉莉", "parallel_segments": 1, "merge": True},
     )
     second = client.post(
         f"/api/chapters/{chapter_id}/tts",
-        json={"provider": "mimo", "voice": "Cherry", "parallel_segments": 1, "merge": False},
+        json={"provider": "mimo", "voice": "茉莉", "parallel_segments": 1, "merge": False},
     )
 
     assert first.status_code == 200
@@ -329,11 +344,11 @@ def test_manual_merge_of_older_tts_job_does_not_replace_current_audio(tmp_path: 
 
     first = client.post(
         f"/api/chapters/{chapter_id}/tts",
-        json={"provider": "mimo", "voice": "Cherry", "parallel_segments": 1, "merge": True},
+        json={"provider": "mimo", "voice": "茉莉", "parallel_segments": 1, "merge": True},
     )
     second = client.post(
         f"/api/chapters/{chapter_id}/tts",
-        json={"provider": "mimo", "voice": "Cherry", "parallel_segments": 1, "merge": True},
+        json={"provider": "mimo", "voice": "茉莉", "parallel_segments": 1, "merge": True},
     )
     first_job_id = first.json()["id"]
     second_job_id = second.json()["id"]
@@ -378,7 +393,7 @@ def test_tts_endpoint_clears_older_promotion_after_new_job_row_exists(tmp_path: 
 
     response = client.post(
         f"/api/chapters/{chapter_id}/tts",
-        json={"provider": "mimo", "voice": "Cherry", "parallel_segments": 1, "merge": False},
+        json={"provider": "mimo", "voice": "茉莉", "parallel_segments": 1, "merge": False},
     )
 
     assert response.status_code == 200
