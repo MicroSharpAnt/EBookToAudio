@@ -103,8 +103,8 @@ async def test_tts_runner_without_merge_keeps_segment_paths(tmp_path: Path):
     assert repo.get_job(job.id).status == JobStatus.COMPLETED
     assert repo.get_chapter(chapter.id).audio_path is None
     assert [segment.output_path for segment in repo.list_segments(job.id)] == [
-        "books/1/audio/0000-0000.wav",
-        "books/1/audio/0000-0001.wav",
+        "books/1/audio/0000/jobs/1/0000.wav",
+        "books/1/audio/0000/jobs/1/0001.wav",
     ]
 
 
@@ -154,7 +154,7 @@ async def test_tts_runner_does_not_complete_active_segment_after_pause(tmp_path:
 
     assert resumed.status == JobStatus.COMPLETED
     assert repo.list_segments(job.id)[0].status == SegmentStatus.COMPLETED
-    assert repo.list_segments(job.id)[0].output_path == "books/1/audio/0000-0000.wav"
+    assert repo.list_segments(job.id)[0].output_path == "books/1/audio/0000/jobs/1/0000.wav"
     assert tts.calls == 2
 
 

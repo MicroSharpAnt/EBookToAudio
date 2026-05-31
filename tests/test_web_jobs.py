@@ -243,4 +243,68 @@ def test_chapter_audio_zip_includes_segments_when_tts_merge_false(tmp_path: Path
     zip_path.write_bytes(download.content)
     with ZipFile(zip_path) as archive:
         names = archive.namelist()
-        assert any(name.endswith("-0000.wav") for name in names)
+        assert any("/jobs/" in name and name.endswith("/0000.wav") for name in names)
+
+
+def test_repeated_tts_exposes_only_latest_job_audio(tmp_path: Path):
+    app = create_app(data_dir=tmp_path, config_path=tmp_path / "config.yaml", autostart_jobs=False, use_fake_clients=True)
+    client = TestClient(app)
+    book_id, chapter_id = _book_and_chapter_id(client)
+
+    first = client.post(
+        f"/api/chapters/{chapter_id}/tts",
+        json={"provider": "mimo", "voice": "Cherry", "parallel_segments": 1, "merge": True},
+    )
+    second = client.post(
+        f"/api/chapters/{chapter_id}/tts",
+        json={"provider": "mimo", "voice": "Cherry", "parallel_segments": 1, "merge": False},
+    )
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    first_job_id = first.json()["id"]
+    second_job_id = second.json()["id"]
+    first_segments = app.state.repository.list_segments(first_job_id)
+    second_segments = app.state.repository.list_segments(second_job_id)
+    assert first_segments[0].output_path != second_segments[0].output_path
+    assert f"/jobs/{first_job_id}/" in first_segments[0].output_path
+    assert f"/jobs/{second_job_id}/" in second_segments[0].output_path
+
+    metadata = client.get(f"/api/chapters/{chapter_id}/audio")
+    assert metadata.status_code == 200
+    assert metadata.json()["audio_path"] is None
+    assert metadata.json()["download_url"] is None
+    assert [segment["job_id"] for segment in metadata.json()["segments"]] == [second_job_id]
+    assert client.get(f"/api/chapters/{chapter_id}/audio/download").status_code == 404
+
+    chapter_zip = client.get(f"/api/chapters/{chapter_id}/audio/download.zip")
+    assert chapter_zip.status_code == 200
+    chapter_zip_path = tmp_path / "latest-chapter-audio.zip"
+    chapter_zip_path.write_bytes(chapter_zip.content)
+    with ZipFile(chapter_zip_path) as archive:
+        names = archive.namelist()
+    assert any(f"/jobs/{second_job_id}/" in name for name in names)
+    assert not any(f"/jobs/{first_job_id}/" in name for name in names)
+
+    book_zip = client.get(f"/api/books/{book_id}/audio/download.zip")
+    assert book_zip.status_code == 200
+    book_zip_path = tmp_path / "latest-book-audio.zip"
+    book_zip_path.write_bytes(book_zip.content)
+    with ZipFile(book_zip_path) as archive:
+        names = archive.namelist()
+    assert any(f"/jobs/{second_job_id}/" in name for name in names)
+    assert not any(f"/jobs/{first_job_id}/" in name for name in names)
+
+
+def test_resume_paused_unsupported_job_kind_returns_cleanly(tmp_path: Path):
+    app = create_app(data_dir=tmp_path, config_path=tmp_path / "config.yaml", autostart_jobs=False, use_fake_clients=True)
+    client = TestClient(app)
+    book_id, _chapter_id_value = _book_and_chapter_id(client)
+    job = app.state.repository.create_job(book_id, None, JobKind.SPLIT, 1, {})
+    app.state.repository.request_pause(job.id)
+
+    response = client.post(f"/api/jobs/{job.id}/resume")
+
+    assert response.status_code == 200
+    assert response.json()["kind"] == JobKind.SPLIT
+    assert response.json()["status"] == JobStatus.RUNNING
