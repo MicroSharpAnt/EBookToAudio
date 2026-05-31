@@ -98,7 +98,7 @@
       voice: source.ttsVoice || defaultTtsVoice,
       context: source.ttsContext || "",
       parallel_segments: source.ttsParallel || null,
-      source: source.ttsSource || "chapter",
+      source: source.ttsSource || "translation",
       merge: source.mergeAudio == null ? true : Boolean(source.mergeAudio),
     };
   }

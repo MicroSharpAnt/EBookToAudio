@@ -76,7 +76,7 @@ class TTSRequest(BaseModel):
     work_background: str | None = None
     parallel_segments: int | None = None
     merge: bool = True
-    source: Literal["chapter", "translation"] = "chapter"
+    source: Literal["chapter", "translation"] = "translation"
 
 
 class ResumeRequest(BaseModel):
@@ -471,8 +471,7 @@ def create_app(
         background_tasks: BackgroundTasks,
     ) -> dict[str, Any]:
         chapter = _get_chapter_or_404(repository, chapter_id)
-        if request.source == "translation" and chapter.translation_path is None:
-            raise HTTPException(status_code=404, detail="translation not found")
+        source = _effective_tts_source(chapter, request.source)
         tts_client = _tts_client_for_request(loaded_config, request, use_fake_clients)
         if tts_client is None:
             raise HTTPException(status_code=400, detail="TTS API key is required")
@@ -487,7 +486,7 @@ def create_app(
                 repository,
                 storage,
                 chapter,
-                request.source,
+                source,
                 runner.tts_max_chars,
                 voice,
                 context,
@@ -511,7 +510,7 @@ def create_app(
             repository,
             storage,
             chapter,
-            request.source,
+            source,
             runner.tts_max_chars,
             voice,
             context,
@@ -690,6 +689,15 @@ def _tts_request_for_job(job: Job, api_key: str | None) -> TTSRequest:
         merge=bool(job.options.get("merge", True)),
         source=_option_source(job.options),
     )
+
+
+def _effective_tts_source(
+    chapter: Chapter,
+    requested_source: Literal["chapter", "translation"],
+) -> Literal["chapter", "translation"]:
+    if requested_source == "translation" and chapter.translation_path is not None:
+        return "translation"
+    return "chapter"
 
 
 def _create_translation_job(
