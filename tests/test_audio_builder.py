@@ -14,6 +14,14 @@ def test_audio_builder_without_ffmpeg_returns_none(tmp_path: Path):
     assert builder.merge_audio([tmp_path / "a.wav"], tmp_path / "out.wav") is None
 
 
+def test_audio_builder_with_invalid_ffmpeg_path_returns_none(tmp_path: Path):
+    source = tmp_path / "a.wav"
+    source.write_bytes(b"RIFFxxxxWAVEfake")
+    builder = AudioBuilder(ffmpeg_path=str(tmp_path / "missing-ffmpeg"))
+
+    assert builder.merge_audio([source], tmp_path / "out.wav") is None
+
+
 def test_audio_builder_build_zip_uses_safe_relative_paths(tmp_path: Path):
     job_dir = tmp_path / "job"
     chapter = job_dir / "chapters" / "000.wav"

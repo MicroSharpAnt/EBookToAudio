@@ -37,7 +37,7 @@ class AudioBuilder:
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
             )
-        except subprocess.CalledProcessError:
+        except (OSError, subprocess.CalledProcessError):
             output_path.unlink(missing_ok=True)
             return None
         return output_path

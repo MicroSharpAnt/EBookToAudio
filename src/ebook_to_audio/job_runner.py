@@ -230,6 +230,13 @@ class JobRunner:
                 for _ in range(worker_count)
             )
         )
+        current_job = self.repository.get_job(job_id)
+        if (
+            current_job.pause_requested
+            or current_job.stop_requested
+            or current_job.status in {JobStatus.PAUSED, JobStatus.STOPPED}
+        ):
+            return current_job
         if merge:
             self.merge_chapter_audio(job_id)
         return self.repository.refresh_job_progress(job_id)
@@ -278,6 +285,13 @@ class JobRunner:
                     context,
                     self.storage.resolve_artifact(output_path),
                 )
+                current_job = self.repository.get_job(job_id)
+                if (
+                    current_job.pause_requested
+                    or current_job.stop_requested
+                    or current_job.status in {JobStatus.PAUSED, JobStatus.STOPPED}
+                ):
+                    return
                 self.repository.complete_segment(
                     segment.id,
                     output_path=output_path,
