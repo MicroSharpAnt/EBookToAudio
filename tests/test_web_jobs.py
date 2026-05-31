@@ -1,4 +1,5 @@
 from pathlib import Path
+from urllib.parse import unquote
 from zipfile import ZipFile
 
 from fastapi.testclient import TestClient
@@ -89,6 +90,35 @@ def test_tts_endpoint_creates_audio_and_controls_are_idempotent(tmp_path: Path):
     assert client.post(f"/api/jobs/{job_id}/stop").status_code == 200
     audio = client.get(f"/api/chapters/{chapter_id}/audio/download")
     assert audio.status_code == 200
+
+
+def test_merged_audio_download_uses_book_and_chapter_filename(tmp_path: Path):
+    app = create_app(data_dir=tmp_path, config_path=tmp_path / "config.yaml", autostart_jobs=False, use_fake_clients=True)
+    client = TestClient(app)
+    upload = client.post(
+        "/api/books",
+        files={
+            "file": (
+                "My Book.txt",
+                "Chapter 1 Start\nhello\nChapter 2 End\nbye".encode("utf-8"),
+                "text/plain",
+            )
+        },
+    )
+    book_id = upload.json()["id"]
+    client.post(f"/api/books/{book_id}/split")
+    chapter = client.get(f"/api/books/{book_id}/chapters").json()[0]
+
+    response = client.post(
+        f"/api/chapters/{chapter['id']}/tts",
+        json={"provider": "mimo", "voice": "茉莉", "parallel_segments": 1, "merge": True},
+    )
+    assert response.status_code == 200
+
+    audio = client.get(f"/api/chapters/{chapter['id']}/audio/download")
+
+    assert audio.status_code == 200
+    assert "My Book - Chapter 1 Start.wav" in unquote(audio.headers["content-disposition"])
 
 
 def test_tts_endpoint_defaults_to_translation_when_available(tmp_path: Path):
