@@ -129,6 +129,17 @@
     };
   }
 
+  function jobBelongsToCurrentBook(job, book) {
+    if (!job || !book || book.id == null) {
+      return true;
+    }
+    return Number(job.book_id) === Number(book.id);
+  }
+
+  function filterJobsForBook(jobs, book) {
+    return (jobs || []).filter((job) => jobBelongsToCurrentBook(job, book));
+  }
+
   async function api(path, options = {}) {
     const response = await fetch(path, {
       headers: options.body instanceof FormData ? undefined : { "Content-Type": "application/json" },
@@ -229,15 +240,21 @@
 
   async function loadCurrentBook() {
     try {
-      state.book = await api("/api/books/current");
+      const book = await api("/api/books/current");
+      clearAllJobTimers();
+      state.jobs.clear();
+      state.book = book;
       renderBook();
       await loadChapters();
       await loadBookJobs();
     } catch (error) {
+      clearAllJobTimers();
       state.book = null;
       state.chapters = [];
+      state.jobs.clear();
       renderBook();
       renderChapters();
+      renderJobs();
       setStatus(error.message === "no books" ? "尚未导入书籍。" : `读取书籍失败：${error.message}`, "error");
     }
   }
@@ -278,9 +295,9 @@
     try {
       const jobs = await api(`/api/books/${state.book.id}/jobs`);
       state.jobs.clear();
-      (jobs || []).forEach((job) => state.jobs.set(job.id, job));
+      filterJobsForBook(jobs, state.book).forEach((job) => state.jobs.set(job.id, job));
       renderJobs();
-      activeJobs(jobs).forEach((job) => startJobPolling(job.id));
+      activeJobs(filterJobsForBook(jobs, state.book)).forEach((job) => startJobPolling(job.id));
     } catch (error) {
       setStatus(`读取任务失败：${error.message}`, "error");
     }
@@ -440,15 +457,16 @@
   function renderJobs() {
     const board = $("#jobBoard");
     const split = $("#splitJob");
+    const jobsForBook = filterJobsForBook(Array.from(state.jobs.values()), state.book);
     if (board) {
-      const active = Array.from(state.jobs.values())
+      const active = jobsForBook
         .filter((job) => job.kind !== "split")
         .sort((a, b) => Number(b.id) - Number(a.id))
         .slice(0, 4);
       board.innerHTML = active.map(jobMarkup).join("");
     }
     if (split) {
-      const splitJob = Array.from(state.jobs.values())
+      const splitJob = jobsForBook
         .filter((job) => job.kind === "split")
         .sort((a, b) => Number(b.id) - Number(a.id))[0];
       split.innerHTML = splitJob ? jobMarkup(splitJob) : "";
@@ -467,7 +485,9 @@
     form.append("file", input.files[0]);
     try {
       setStatus("正在上传并转换为 TXT...");
-      state.book = await api("/api/books", { method: "POST", body: form });
+      const book = await api("/api/books", { method: "POST", body: form });
+      clearAllJobTimers();
+      state.book = book;
       state.chapters = [];
       state.jobs.clear();
       renderBook();
@@ -579,6 +599,10 @@
     if (!job || !job.id) {
       return;
     }
+    if (!jobBelongsToCurrentBook(job, state.book)) {
+      clearJobTimer(job.id);
+      return;
+    }
     state.jobs.set(job.id, job);
     renderJobs();
     if (terminalStatuses.has(job.status)) {
@@ -614,6 +638,11 @@
       clearInterval(timer);
       state.jobTimers.delete(jobId);
     }
+  }
+
+  function clearAllJobTimers() {
+    state.jobTimers.forEach((timer) => clearInterval(timer));
+    state.jobTimers.clear();
   }
 
   async function openEditor(chapterId) {
@@ -747,6 +776,8 @@
     activeJobs,
     chapterHasAudio,
     bookArtifactAvailability,
+    jobBelongsToCurrentBook,
+    filterJobsForBook,
     api,
     renderChapters,
   };
