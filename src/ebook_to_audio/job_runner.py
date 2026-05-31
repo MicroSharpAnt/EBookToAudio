@@ -174,7 +174,6 @@ class JobRunner:
         merge: bool = True,
     ) -> Job:
         chapter = self.repository.get_chapter(chapter_id)
-        self.repository.update_chapter_audio_path(chapter.id, None)
         source_text = self.storage.read_text(chapter.text_path)
         source_segments = _chapter_segments(source_text, self.tts_max_chars)
         job = self.repository.create_job(
@@ -189,6 +188,7 @@ class JobRunner:
                 "merge": merge,
             },
         )
+        self.repository.update_chapter_audio_path(chapter.id, None)
         if not source_segments:
             self.repository.fail_job(job.id, "chapter has no text to synthesize")
             return self.repository.get_job(job.id)
