@@ -1,0 +1,31 @@
+[project]
+name = "ebook-to-audio"
+version = "0.1.0"
+description = "Local FastAPI app for translating ebooks and generating audio."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "beautifulsoup4",
+    "ebooklib",
+    "fastapi",
+    "httpx",
+    "openai",
+    "python-multipart",
+    "pyyaml",
+    "uvicorn[standard]",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "pytest-asyncio",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+ebook_to_audio = ["static/*"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]

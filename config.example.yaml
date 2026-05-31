@@ -1,0 +1,25 @@
+active_translation_provider: deepseek
+data_dir: data
+translation:
+  segment_limit: 1200
+  request_timeout_seconds: 45
+  max_retries: 2
+  prompt:
+    system: "You are a precise translation assistant."
+    user_template: "Translate the following text: {source_text}"
+  providers:
+    deepseek:
+      base_url: "https://api.deepseek.com"
+      api_key: "replace-with-deepseek-api-key"
+      model: "deepseek-chat"
+tts:
+  base_url: "https://token-plan-cn.xiaomimimo.com/v1"
+  api_key: "replace-with-mimo-api-key"
+  model: "mimo-audio"
+  default_voice: "Cherry"
+  max_request_chars: 900
+  default_parallel_segments: 2
+limits:
+  max_upload_bytes: 1000000
+  max_parallel_translation_segments: 3
+  max_parallel_tts_segments: 4
