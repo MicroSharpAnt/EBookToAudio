@@ -83,6 +83,43 @@ def test_request_stop_immediately_marks_job_stopped(tmp_path: Path):
     assert stopped_job.status == JobStatus.STOPPED
 
 
+def test_request_pause_preserves_completed_and_stopped_jobs(tmp_path: Path):
+    repo = Repository(tmp_path / "app.db")
+    _, _, completed_job, completed_segments = _create_segmented_job(repo)
+    for segment in completed_segments:
+        repo.complete_segment(segment.id, result_text=segment.source_text)
+
+    repo.request_pause(completed_job.id)
+    assert repo.get_job(completed_job.id).status == JobStatus.COMPLETED
+
+    _, _, stopped_job, _ = _create_segmented_job(repo)
+    repo.request_stop(stopped_job.id)
+
+    repo.request_pause(stopped_job.id)
+    assert repo.get_job(stopped_job.id).status == JobStatus.STOPPED
+
+
+def test_request_stop_preserves_completed_and_failed_jobs(tmp_path: Path):
+    repo = Repository(tmp_path / "app.db")
+    _, _, completed_job, completed_segments = _create_segmented_job(repo)
+    for segment in completed_segments:
+        repo.complete_segment(segment.id, result_text=segment.source_text)
+
+    repo.request_stop(completed_job.id)
+    completed = repo.get_job(completed_job.id)
+    assert completed.status == JobStatus.COMPLETED
+    assert completed.stop_requested is False
+
+    _, _, failed_job, failed_segments = _create_segmented_job(repo)
+    for segment in failed_segments:
+        repo.fail_segment(segment.id, "failed")
+
+    repo.request_stop(failed_job.id)
+    failed = repo.get_job(failed_job.id)
+    assert failed.status == JobStatus.FAILED
+    assert failed.stop_requested is False
+
+
 def test_resume_job_does_not_resurrect_completed_or_stopped_jobs(tmp_path: Path):
     repo = Repository(tmp_path / "app.db")
     _, _, completed_job, completed_segments = _create_segmented_job(repo)

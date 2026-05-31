@@ -148,6 +148,9 @@ class Repository:
 
     def request_pause(self, job_id: int) -> None:
         with self._connection() as conn:
+            job = self.get_job(job_id, conn=conn)
+            if job.status in TERMINAL_JOB_STATUSES or job.stop_requested:
+                return
             conn.execute(
                 """
                 UPDATE jobs
@@ -180,6 +183,9 @@ class Repository:
 
     def request_stop(self, job_id: int) -> None:
         with self._connection() as conn:
+            job = self.get_job(job_id, conn=conn)
+            if job.status in TERMINAL_JOB_STATUSES:
+                return
             conn.execute(
                 """
                 UPDATE jobs
