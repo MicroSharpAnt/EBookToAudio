@@ -3,7 +3,7 @@ from pprint import pformat
 
 import pytest
 
-from ebook_to_audio.config import ConfigError, load_config
+from ebook_to_audio.config import ConfigError, DEFAULT_MAX_UPLOAD_BYTES, load_config
 
 
 def write_config(path: Path, content: str) -> None:
@@ -127,7 +127,7 @@ def test_load_config_uses_defaults_for_optional_prompt_numeric_and_limits(
     assert config.translation.max_retries == 2
     assert config.tts.max_request_chars == 900
     assert config.tts.default_parallel_segments == 2
-    assert config.limits.max_upload_bytes == 1000000
+    assert config.limits.max_upload_bytes == DEFAULT_MAX_UPLOAD_BYTES
     assert config.limits.max_parallel_translation_segments == 3
     assert config.limits.max_parallel_tts_segments == 4
 

@@ -13,6 +13,7 @@ class ConfigError(ValueError):
 
 PRESET_TTS_VOICES = ("冰糖", "茉莉", "苏打", "白桦", "Mia", "Chloe", "Milo", "Dean")
 DEFAULT_TTS_VOICE = PRESET_TTS_VOICES[0]
+DEFAULT_MAX_UPLOAD_BYTES = 20 * 1024 * 1024
 
 
 @dataclass(frozen=True)
@@ -166,7 +167,10 @@ def load_config(path: Path) -> AppConfig:
     limits_raw = _get_mapping(raw, "limits", "limits", required=False)
     limits = LimitsConfig(
         max_upload_bytes=_get_positive_int(
-            limits_raw, "max_upload_bytes", "limits.max_upload_bytes", default=1000000
+            limits_raw,
+            "max_upload_bytes",
+            "limits.max_upload_bytes",
+            default=DEFAULT_MAX_UPLOAD_BYTES,
         ),
         max_parallel_translation_segments=_get_positive_int(
             limits_raw,
