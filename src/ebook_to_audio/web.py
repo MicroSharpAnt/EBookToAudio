@@ -538,11 +538,10 @@ def create_app(
         job = _get_job_or_404(repository, job_id)
         if job.kind != JobKind.TTS:
             raise HTTPException(status_code=400, detail="job is not a TTS job")
-        merged = runner.merge_chapter_audio(job_id)
-        if merged is None:
+        merged_audio_path = runner.merge_chapter_audio(job_id)
+        if merged_audio_path is None:
             return {"merged": False, "job": _job_dict(repository.get_job(job_id))}
         refreshed_job = repository.get_job(job_id)
-        merged_audio_path = str(merged.relative_to(storage.data_dir))
         if refreshed_job.chapter_id is not None:
             chapter = repository.get_chapter(refreshed_job.chapter_id)
             latest_job = _latest_tts_job_for_chapter(repository, chapter)
