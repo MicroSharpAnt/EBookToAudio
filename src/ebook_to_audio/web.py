@@ -679,6 +679,7 @@ def _tts_client_for_request(
     request: TTSRequest,
     use_fake_clients: bool,
 ) -> Any | None:
+    _validate_tts_provider(request.provider)
     if use_fake_clients:
         return _FakeTTSClient()
     if not any([request.api_key, request.base_url, request.model]):
@@ -691,6 +692,12 @@ def _tts_client_for_request(
         )
     except MissingMimoApiKey:
         return None
+
+
+def _validate_tts_provider(provider: str | None) -> None:
+    if provider is None or provider == "mimo":
+        return
+    raise HTTPException(status_code=400, detail=f"unsupported TTS provider: {provider}")
 
 
 def _file_response(

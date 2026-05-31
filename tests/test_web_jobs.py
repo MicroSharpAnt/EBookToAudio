@@ -116,3 +116,18 @@ def test_tts_endpoint_exposes_segment_audio_and_book_zip(tmp_path: Path):
     with ZipFile(zip_path) as archive:
         names = archive.namelist()
         assert any(name.endswith(".wav") for name in names)
+
+
+def test_tts_endpoint_rejects_unsupported_provider_before_creating_job(tmp_path: Path):
+    app = create_app(data_dir=tmp_path, config_path=tmp_path / "config.yaml", autostart_jobs=False, use_fake_clients=True)
+    client = TestClient(app)
+    chapter_id = _chapter_id(client)
+
+    response = client.post(
+        f"/api/chapters/{chapter_id}/tts",
+        json={"provider": "unknown", "voice": "Cherry", "parallel_segments": 1},
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "unsupported TTS provider: unknown"
+    assert client.get(f"/api/chapters/{chapter_id}/audio").json()["segments"] == []
