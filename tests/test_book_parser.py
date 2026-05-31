@@ -45,6 +45,59 @@ def _make_epub_bytes() -> bytes:
     return output.getvalue()
 
 
+def _make_epub_with_toc_titles_bytes() -> bytes:
+    book = epub.EpubBook()
+    book.set_identifier("toc-title-sample")
+    book.set_title("TOC Title Sample")
+    book.set_language("en")
+
+    table_of_contents = epub.EpubHtml(title="Contents", file_name="contents.xhtml", lang="en")
+    table_of_contents.content = """
+        <html>
+            <body>
+                <p>Table of Contents</p>
+                <p>Story One</p>
+                <p>Story Two</p>
+            </body>
+        </html>
+    """
+
+    first = epub.EpubHtml(title="", file_name="story-one.xhtml", lang="en")
+    first.content = """
+        <html>
+            <body>
+                <p>THE PLUTONIAN FIRE</p>
+                <p>First story text.</p>
+            </body>
+        </html>
+    """
+
+    second = epub.EpubHtml(title="", file_name="story-two.xhtml", lang="en")
+    second.content = """
+        <html>
+            <body>
+                <p>THE GIFT OF THE MAGI</p>
+                <p>Second story text.</p>
+            </body>
+        </html>
+    """
+
+    book.add_item(table_of_contents)
+    book.add_item(first)
+    book.add_item(second)
+    book.toc = (
+        epub.Link("story-one.xhtml", "Story One", "story-one"),
+        epub.Link("story-two.xhtml", "Story Two", "story-two"),
+    )
+    book.add_item(epub.EpubNav())
+    book.add_item(epub.EpubNcx())
+    book.spine = [table_of_contents, first, second]
+
+    output = BytesIO()
+    epub.write_epub(output, book)
+    return output.getvalue()
+
+
 def test_parse_txt_normalizes_bom_and_line_endings():
     parsed = parse_book_bytes("sample.txt", "\ufeff第一章\r\n正文\r\n\r\n第二行".encode("utf-8"))
 
@@ -64,6 +117,16 @@ def test_parse_epub_uses_spine_order_and_skips_navigation_documents():
         ParsedChapter(title="第一章", text="第一章\n第一章正文"),
     )
     assert parsed.full_text == "第二章\n第二章正文\n\n第一章\n第一章正文"
+
+
+def test_parse_epub_uses_toc_titles_and_skips_toc_only_documents():
+    parsed = parse_book_bytes("stories.epub", _make_epub_with_toc_titles_bytes())
+
+    assert parsed.initial_chapters == (
+        ParsedChapter(title="Story One", text="THE PLUTONIAN FIRE\nFirst story text."),
+        ParsedChapter(title="Story Two", text="THE GIFT OF THE MAGI\nSecond story text."),
+    )
+    assert "Table of Contents" not in parsed.full_text
 
 
 def test_parse_epub_rejects_invalid_bytes():

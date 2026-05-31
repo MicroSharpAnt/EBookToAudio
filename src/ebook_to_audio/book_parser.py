@@ -3,6 +3,8 @@ from __future__ import annotations
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
+import posixpath
+from urllib.parse import unquote, urldefrag
 
 import ebooklib
 from bs4 import BeautifulSoup
@@ -86,21 +88,63 @@ def parse_epub(title: str, content: bytes) -> ParsedBook:
 
 def _extract_epub_chapters(book: epub.EpubBook, fallback_title: str) -> list[ParsedChapter]:
     chapters: list[ParsedChapter] = []
+    toc_titles = _toc_titles_by_href(book)
 
     for spine_item in book.spine:
         item_id = spine_item[0] if isinstance(spine_item, tuple) else spine_item
         item = book.get_item_with_id(item_id)
         if item is None or item.get_type() != ebooklib.ITEM_DOCUMENT or _is_navigation_item(item):
             continue
+        item_href = _normalize_epub_href(item.get_name())
+        if toc_titles and item_href not in toc_titles:
+            continue
 
         text = _extract_document_text(item)
         if not text:
             continue
 
-        chapter_title = _extract_document_title(item) or Path(item.get_name()).stem or fallback_title
+        chapter_title = (
+            toc_titles.get(item_href)
+            or _extract_document_title(item)
+            or _first_text_line(text)
+            or Path(item.get_name()).stem
+            or fallback_title
+        )
         chapters.append(ParsedChapter(title=chapter_title, text=text))
 
     return chapters
+
+
+def _toc_titles_by_href(book: epub.EpubBook) -> dict[str, str]:
+    titles: dict[str, str] = {}
+    for href, title in _iter_toc_links(book.toc):
+        normalized_href = _normalize_epub_href(href)
+        clean_title = title.strip()
+        if normalized_href and clean_title and normalized_href not in titles:
+            titles[normalized_href] = clean_title
+    return titles
+
+
+def _iter_toc_links(items: object):
+    if not isinstance(items, (list, tuple)):
+        return
+
+    for item in items:
+        if isinstance(item, tuple):
+            parent, children = item
+            yield from _iter_toc_links((parent,))
+            yield from _iter_toc_links(children)
+            continue
+
+        href = getattr(item, "href", None)
+        title = getattr(item, "title", None)
+        if isinstance(href, str) and isinstance(title, str):
+            yield href, title
+
+
+def _normalize_epub_href(href: str) -> str:
+    without_fragment, _fragment = urldefrag(href)
+    return posixpath.normpath(unquote(without_fragment)).lstrip("./")
 
 
 def _is_navigation_item(item: ebooklib.epub.EpubItem) -> bool:
@@ -129,6 +173,10 @@ def _extract_document_title(item: ebooklib.epub.EpubItem) -> str | None:
 
     title = title_tag.get_text(separator=" ", strip=True)
     return title or None
+
+
+def _first_text_line(text: str) -> str | None:
+    return next((line.strip() for line in text.splitlines() if line.strip()), None)
 
 
 def _normalize_line_endings(text: str) -> str:

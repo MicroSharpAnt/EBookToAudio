@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, replace
 import io
+import json
 from pathlib import Path
 import shutil
 from typing import Any, Literal
@@ -14,7 +15,7 @@ from pydantic import BaseModel
 
 from .audio_builder import AudioBuilder
 from .book_parser import ParseError, parse_book_bytes
-from .chapter_splitter import split_into_chapters
+from .chapter_splitter import SplitChapter, split_into_chapters
 from .config import (
     AppConfig,
     ConfigError,
@@ -160,6 +161,8 @@ def create_app(
             storage.resolve_artifact(source_path).write_bytes(content)
             storage.write_text(filtered_path, parsed.full_text)
             storage.write_text(cleaned_path, parsed.full_text)
+            if len(parsed.initial_chapters) >= 2:
+                _write_structured_chapters(storage, book.id, parsed.initial_chapters)
             return _book_dict(repository.update_book_paths(book.id, source_path, filtered_path, cleaned_path))
         except (OSError, PathSafetyError) as exc:
             _discard_partial_book(repository, storage, book.id)
@@ -239,6 +242,7 @@ def create_app(
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
         storage.write_text(book.cleaned_path, result.text)
+        _clean_structured_chapters_if_present(storage, book.id, request.operations)
         metadata = chapter_metadata(result.text)
         return {
             "book": _book_dict(book),
@@ -250,7 +254,7 @@ def create_app(
     @app.post("/api/books/{book_id}/split")
     def split_book(book_id: int) -> dict[str, Any]:
         book = _get_book_or_404(repository, book_id)
-        chapters = split_into_chapters(_read_artifact_text(storage, book.cleaned_path))
+        chapters = _chapters_for_split(storage, book)
         job = repository.create_job(book.id, None, JobKind.SPLIT, len(chapters), options={})
         try:
             chapter_rows: list[tuple[int, str, str, int, int]] = []
@@ -1090,6 +1094,68 @@ def _sanitize_upload_filename(filename: str) -> str:
     if not name or name in {".", ".."}:
         raise HTTPException(status_code=400, detail="invalid upload filename")
     return name
+
+
+def _chapters_for_split(storage: LocalStorage, book: Book) -> list[SplitChapter]:
+    structured_chapters = _read_structured_chapters(storage, book.id)
+    if len(structured_chapters) >= 2:
+        return structured_chapters
+    return split_into_chapters(_read_artifact_text(storage, book.cleaned_path))
+
+
+def _clean_structured_chapters_if_present(storage: LocalStorage, book_id: int, operations: list[str]) -> None:
+    chapters = _read_structured_chapters(storage, book_id)
+    if not chapters:
+        return
+
+    cleaned_chapters = [
+        SplitChapter(title=chapter.title, text=clean_text(chapter.text, operations).text)
+        for chapter in chapters
+    ]
+    _write_structured_chapters(storage, book_id, cleaned_chapters)
+
+
+def _write_structured_chapters(storage: LocalStorage, book_id: int, chapters: Any) -> None:
+    payload = [
+        {"title": str(chapter.title), "text": str(chapter.text)}
+        for chapter in chapters
+        if str(chapter.text).strip()
+    ]
+    storage.write_text(
+        _structured_chapters_path(book_id),
+        json.dumps(payload, ensure_ascii=False, indent=2),
+    )
+
+
+def _read_structured_chapters(storage: LocalStorage, book_id: int) -> list[SplitChapter]:
+    try:
+        raw = storage.read_text(_structured_chapters_path(book_id))
+        payload = json.loads(raw)
+    except (OSError, PathSafetyError, json.JSONDecodeError):
+        return []
+
+    if not isinstance(payload, list):
+        return []
+
+    chapters: list[SplitChapter] = []
+    for index, item in enumerate(payload):
+        if not isinstance(item, dict):
+            continue
+        title = item.get("title")
+        text = item.get("text")
+        if not isinstance(text, str) or not text.strip():
+            continue
+        chapters.append(
+            SplitChapter(
+                title=title.strip() if isinstance(title, str) and title.strip() else f"第 {index + 1} 章",
+                text=text,
+            )
+        )
+    return chapters
+
+
+def _structured_chapters_path(book_id: int) -> str:
+    return f"books/{book_id}/structured-chapters.json"
 
 
 def _staged_chapter_path(book_id: int, job_id: int, chapter_index: int) -> str:
