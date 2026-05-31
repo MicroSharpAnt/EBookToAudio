@@ -214,6 +214,35 @@
     return anchor;
   }
 
+  function previewButton(label, variant) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.dataset.bookPreview = variant;
+    button.textContent = label;
+    return button;
+  }
+
+  function bookPreviewUrl(book, variant) {
+    if (!book || book.id == null) {
+      return null;
+    }
+    const suffixes = {
+      current: "download.txt",
+      full: "download/full.txt",
+      cleaned: "download/cleaned.txt",
+    };
+    const suffix = suffixes[variant] || suffixes.current;
+    return `/api/books/${book.id}/${suffix}`;
+  }
+
+  function bookPreviewLabel(variant) {
+    return {
+      current: "当前 TXT",
+      full: "完整 TXT",
+      cleaned: "清理后 TXT",
+    }[variant] || "当前 TXT";
+  }
+
   function setHref(selector, href) {
     const anchor = $(selector);
     if (!anchor) {
@@ -367,6 +396,9 @@
       state.book.original_filename,
     )} · ${escapeHtml(state.book.source_format)}`;
     downloads.append(
+      previewButton("查看当前 TXT", "current"),
+      previewButton("查看完整 TXT", "full"),
+      previewButton("查看清理 TXT", "cleaned"),
       link("下载当前 TXT", `/api/books/${state.book.id}/download.txt`),
       link("下载完整 TXT", `/api/books/${state.book.id}/download/full.txt`),
       link("下载清理 TXT", `/api/books/${state.book.id}/download/cleaned.txt`),
@@ -466,10 +498,16 @@
     }
     return audio.segments
       .map(
-        (segment) =>
-          `<a class="button-link" href="${segment.download_url || `/api/chapters/${chapterId}/audio/segments/${segment.id}/download`}">音频段 ${
-            Number(segment.segment_index || 0) + 1
-          }</a>`,
+        (segment) => {
+          const index = Number(segment.segment_index || 0) + 1;
+          const url = segment.download_url || `/api/chapters/${chapterId}/audio/segments/${segment.id}/download`;
+          const safeUrl = escapeHtml(url);
+          return `<div class="segment-player">
+            <span class="segment-title">音频段 ${index}</span>
+            <audio controls preload="none" src="${safeUrl}"></audio>
+            <a class="button-link" href="${safeUrl}">下载音频段 ${index}</a>
+          </div>`;
+        },
       )
       .join("");
   }
@@ -561,6 +599,7 @@
       setText("#cleanResult", detail || "清理完成。");
       setStatus(`清理完成：${formatCount(result.char_count)} 字符。`);
       await loadCurrentBook();
+      await openBookPreview("cleaned");
     } catch (error) {
       setStatus(`清理失败：${error.message}`, "error");
     }
@@ -615,6 +654,42 @@
       setStatus(response.merged ? "音频已合并。" : "暂无可合并音频。");
     } catch (error) {
       setStatus(`合并失败：${error.message}`, "error");
+    }
+  }
+
+  async function openBookPreview(variant) {
+    if (!state.book) {
+      setStatus("请先导入书籍。", "error");
+      return;
+    }
+    const url = bookPreviewUrl(state.book, variant);
+    if (!url) {
+      setStatus("没有可预览的文本。", "error");
+      return;
+    }
+    const dialog = $("#bookTextDialog");
+    const title = $("#bookPreviewTitle");
+    const text = $("#bookPreviewText");
+    const status = $("#bookPreviewStatus");
+    if (!dialog || !title || !text) {
+      return;
+    }
+    try {
+      setStatus(`正在读取${bookPreviewLabel(variant)}...`);
+      const content = await api(url);
+      title.value = `${state.book.title || "书籍"} · ${bookPreviewLabel(variant)}`;
+      text.value = content;
+      if (status) {
+        status.textContent = `${formatCount(content.length)} 字符`;
+      }
+      if (typeof dialog.showModal === "function") {
+        dialog.showModal();
+      } else {
+        dialog.setAttribute("open", "open");
+      }
+      setStatus(`${bookPreviewLabel(variant)}已打开。`);
+    } catch (error) {
+      setStatus(`读取文本失败：${error.message}`, "error");
     }
   }
 
@@ -770,6 +845,19 @@
         cleanBook(operations);
       });
     }
+    const previewCleaned = $("#previewCleanedText");
+    if (previewCleaned) {
+      previewCleaned.addEventListener("click", () => openBookPreview("cleaned"));
+    }
+    const bookDownloads = $("#bookDownloads");
+    if (bookDownloads) {
+      bookDownloads.addEventListener("click", (event) => {
+        const target = event.target.closest("button[data-book-preview]");
+        if (target) {
+          openBookPreview(target.dataset.bookPreview || "current");
+        }
+      });
+    }
     const chapters = $("#chapters");
     if (chapters) {
       chapters.addEventListener("click", (event) => {
@@ -808,6 +896,8 @@
     buildTranslatePayload,
     buildTtsPayload,
     renderTtsVoices,
+    bookPreviewUrl,
+    renderSegmentLinks,
     jobActionOptions,
     activeJobs,
     chapterHasAudio,

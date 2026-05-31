@@ -140,6 +140,24 @@ assert.strictEqual(
   false,
 );
 assert.strictEqual(
+  sandbox.window.EBookToAudio.bookPreviewUrl({ id: 7 }, "current"),
+  "/api/books/7/download.txt",
+);
+assert.strictEqual(
+  sandbox.window.EBookToAudio.bookPreviewUrl({ id: 7 }, "cleaned"),
+  "/api/books/7/download/cleaned.txt",
+);
+assert.strictEqual(
+  sandbox.window.EBookToAudio.bookPreviewUrl({ id: 7 }, "full"),
+  "/api/books/7/download/full.txt",
+);
+const segmentMarkup = sandbox.window.EBookToAudio.renderSegmentLinks(3, {
+  segments: [{ id: 5, segment_index: 0, download_url: "/api/chapters/3/audio/segments/5/download" }],
+});
+assert(segmentMarkup.includes("<audio controls"));
+assert(segmentMarkup.includes('src="/api/chapters/3/audio/segments/5/download"'));
+assert(segmentMarkup.includes("下载音频段 1"));
+assert.strictEqual(
   sandbox.window.EBookToAudio.buildTranslatePayload({ translationProvider: "default" }).parallel_segments,
   null,
 );

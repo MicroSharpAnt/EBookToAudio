@@ -47,6 +47,7 @@
               删除装饰分隔线
             </label>
             <button id="applySelectedClean" type="button">应用选中的清理项</button>
+            <button id="previewCleanedText" type="button">查看清理后文本</button>
             <div id="cleanResult" class="small-log"></div>
           </section>
 
@@ -113,6 +114,19 @@
         </div>
         <textarea id="editorText" spellcheck="false"></textarea>
         <p id="editorStatus" class="status-line"></p>
+      </form>
+    </dialog>
+
+    <dialog id="bookTextDialog" class="editor-dialog">
+      <form method="dialog" class="editor-shell">
+        <div class="editor-head">
+          <input id="bookPreviewTitle" aria-label="文本预览标题" readonly />
+          <div class="editor-actions">
+            <button type="submit">关闭</button>
+          </div>
+        </div>
+        <textarea id="bookPreviewText" spellcheck="false" readonly></textarea>
+        <p id="bookPreviewStatus" class="status-line"></p>
       </form>
     </dialog>
 

@@ -183,6 +183,18 @@ def test_invalid_file_type_bad_clean_and_missing_resources_return_api_errors(tmp
     assert client.get("/api/chapters/999").status_code == 404
 
 
+def test_static_ui_includes_clean_preview_dialog_and_controls(tmp_path: Path):
+    app = create_app(data_dir=tmp_path, config_path=tmp_path / "missing.yaml", autostart_jobs=False)
+    client = TestClient(app)
+
+    response = client.get("/")
+
+    assert response.status_code == 200
+    assert 'id="previewCleanedText"' in response.text
+    assert 'id="bookTextDialog"' in response.text
+    assert 'id="bookPreviewText"' in response.text
+
+
 def test_config_endpoint_exposes_mimo_voice_presets_and_safe_default(tmp_path: Path):
     config_path = tmp_path / "config.yaml"
     config_path.write_text(
