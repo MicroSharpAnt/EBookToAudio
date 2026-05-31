@@ -157,6 +157,51 @@ const segmentMarkup = sandbox.window.EBookToAudio.renderSegmentLinks(3, {
 assert(segmentMarkup.includes("<audio controls"));
 assert(segmentMarkup.includes('src="/api/chapters/3/audio/segments/5/download"'));
 assert(segmentMarkup.includes("下载音频段 1"));
+assert.strictEqual(
+  sandbox.window.EBookToAudio.shouldRefreshAudioDuringJob({
+    kind: "tts",
+    status: "running",
+    chapter_id: 3,
+  }),
+  true,
+);
+assert.strictEqual(
+  sandbox.window.EBookToAudio.shouldRefreshAudioDuringJob({
+    kind: "translate",
+    status: "running",
+    chapter_id: 3,
+  }),
+  false,
+);
+assert.strictEqual(
+  sandbox.window.EBookToAudio.chapterDetailsShouldOpen(
+    { id: 3 },
+    12,
+    null,
+    { kind: "tts", status: "running" },
+    new Set(),
+  ),
+  true,
+);
+assert.strictEqual(
+  sandbox.window.EBookToAudio.chapterDetailsShouldOpen({ id: 3 }, 12, null, null, new Set()),
+  false,
+);
+assert.strictEqual(
+  sandbox.window.EBookToAudio.chapterDetailsShouldOpen({ id: 3 }, 12, null, null, new Set([3])),
+  true,
+);
+assert.strictEqual(
+  sandbox.window.EBookToAudio.chapterDetailsShouldOpen({ id: 3 }, 3, null, null, new Set()),
+  true,
+);
+const segmentOnlyAudioMarkup = sandbox.window.EBookToAudio.renderChapterAudioPanel(
+  { id: 3, audio_path: null },
+  {
+    segments: [{ id: 5, segment_index: 0, download_url: "/api/chapters/3/audio/segments/5/download" }],
+  },
+);
+assert(segmentOnlyAudioMarkup.includes('<details class="segment-details" open'));
 const chapterAudioMarkup = sandbox.window.EBookToAudio.renderChapterAudioPanel(
   { id: 3, audio_path: "books/1/audio/chapter.wav" },
   {

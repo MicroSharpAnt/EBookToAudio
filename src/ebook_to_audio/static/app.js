@@ -27,6 +27,7 @@
     jobs: new Map(),
     jobTimers: new Map(),
     audio: new Map(),
+    expandedChapters: new Set(),
     editingChapterId: null,
   };
 
@@ -126,6 +127,20 @@
 
   function activeJobs(jobs) {
     return (jobs || []).filter((job) => job && !terminalStatuses.has(job.status));
+  }
+
+  function shouldRefreshAudioDuringJob(job) {
+    return Boolean(job && job.kind === "tts" && job.chapter_id != null && !terminalStatuses.has(job.status));
+  }
+
+  function chapterDetailsShouldOpen(chapter, chapterCount, translationJob, ttsJob, expandedChapters) {
+    if (expandedChapters && expandedChapters.has(chapter.id)) {
+      return true;
+    }
+    if ((translationJob && !terminalStatuses.has(translationJob.status)) || (ttsJob && !terminalStatuses.has(ttsJob.status))) {
+      return true;
+    }
+    return Number(chapterCount || 0) <= 4;
   }
 
   function chapterHasAudio(chapter, audio) {
@@ -319,6 +334,7 @@
       const book = await api("/api/books/current");
       clearAllJobTimers();
       state.jobs.clear();
+      state.expandedChapters.clear();
       state.book = book;
       renderBook();
       await loadChapters();
@@ -328,6 +344,7 @@
       state.book = null;
       state.chapters = [];
       state.jobs.clear();
+      state.expandedChapters.clear();
       renderBook();
       renderChapters();
       renderJobs();
@@ -351,17 +368,23 @@
 
   async function loadAudioMetadata() {
     await Promise.all(
-      state.chapters.map(async (chapter) => {
-        try {
-          const metadata = await api(`/api/chapters/${chapter.id}/audio`);
-          state.audio.set(chapter.id, metadata);
-        } catch (_error) {
-          state.audio.set(chapter.id, null);
-        }
-      }),
+      state.chapters.map((chapter) => loadAudioMetadataForChapter(chapter.id, false)),
     );
     renderChapters();
     updateBookArtifactLinks();
+  }
+
+  async function loadAudioMetadataForChapter(chapterId, shouldRender = true) {
+    try {
+      const metadata = await api(`/api/chapters/${chapterId}/audio`);
+      state.audio.set(chapterId, metadata);
+    } catch (_error) {
+      state.audio.set(chapterId, null);
+    }
+    if (shouldRender) {
+      renderChapters();
+      updateBookArtifactLinks();
+    }
   }
 
   async function loadBookJobs() {
@@ -440,28 +463,33 @@
     summary.textContent = `${formatCount(state.chapters.length)} 章 · ${formatCount(chars)} 字符 · ${formatCount(
       paragraphs,
     )} 段落`;
-    state.chapters.forEach((chapter) => list.appendChild(chapterCard(chapter)));
+    state.chapters.forEach((chapter) => list.appendChild(chapterCard(chapter, state.chapters.length)));
   }
 
-  function chapterCard(chapter) {
-    const card = document.createElement("article");
+  function chapterCard(chapter, chapterCount) {
+    const card = document.createElement("details");
     card.className = "chapter-card";
+    card.dataset.chapterId = String(chapter.id);
     const audio = state.audio.get(chapter.id);
     const hasAudio = chapterHasAudio(chapter, audio);
     const ttsJob = latestJobForChapter(chapter.id, "tts");
     const translationJob = latestJobForChapter(chapter.id, "translate");
+    card.open = chapterDetailsShouldOpen(chapter, chapterCount, translationJob, ttsJob, state.expandedChapters);
     card.innerHTML = `
-      <div class="chapter-main">
+      <summary class="chapter-summary">
         <div>
           <h3 class="chapter-title">${escapeHtml(chapter.title || `第 ${chapter.chapter_index + 1} 章`)}</h3>
           <p class="chapter-subtitle">
             ${formatCount(chapter.char_count)} 字符 · ${wordCountLabel(chapter)} · ${formatCount(chapter.paragraph_count)} 段落
           </p>
-          <div class="status-strip">
-            <span class="status-pill ${chapter.translation_path ? "is-complete" : ""}">译文 ${chapter.translation_path ? "已生成" : "未生成"}</span>
-            <span class="status-pill ${hasAudio ? "is-complete" : ""}">音频 ${hasAudio ? "已生成" : "未生成"}</span>
-          </div>
         </div>
+        <div class="status-strip">
+          <span class="status-pill ${chapter.translation_path ? "is-complete" : ""}">译文 ${chapter.translation_path ? "已生成" : "未生成"}</span>
+          <span class="status-pill ${hasAudio ? "is-complete" : ""}">音频 ${hasAudio ? "已生成" : "未生成"}</span>
+        </div>
+        <span class="chapter-toggle-label" aria-hidden="true"></span>
+      </summary>
+      <div class="chapter-body">
         <div class="chapter-actions">
           <button type="button" data-view="${chapter.id}">查看</button>
           <button type="button" data-translate="${chapter.id}" class="primary">将文章翻译为中文</button>
@@ -487,6 +515,7 @@
       </div>
       ${renderChapterAudioPanel(chapter, audio)}
       <div class="job-slot chapter-job-slot">${chapterJobsMarkup([translationJob, ttsJob])}</div>
+      </div>
     `;
     return card;
   }
@@ -528,8 +557,9 @@
           <a class="button-link" href="${escapeHtml(mergedUrl)}">下载 WAV</a>
         </div>`
       : "";
+    const segmentOpen = segments.length && !hasMergedAudio ? " open" : "";
     const segmentMarkup = segments.length
-      ? `<details class="segment-details">
+      ? `<details class="segment-details"${segmentOpen}>
           <summary>查看片段音频 (${segments.length})</summary>
           <div class="audio-segments">${renderSegmentLinks(chapter.id, audio)}</div>
         </details>`
@@ -617,6 +647,7 @@
       state.book = book;
       state.chapters = [];
       state.jobs.clear();
+      state.expandedChapters.clear();
       renderBook();
       renderChapters();
       setStatus("导入完成。");
@@ -655,6 +686,7 @@
     try {
       const response = await api(`/api/books/${state.book.id}/split`, { method: "POST" });
       trackJob(response.job || response);
+      state.expandedChapters.clear();
       setStatus("拆分任务已创建。");
       await loadChapters();
     } catch (error) {
@@ -664,6 +696,8 @@
 
   async function translateChapter(chapterId) {
     try {
+      state.expandedChapters.add(chapterId);
+      renderChapters();
       const response = await api(`/api/chapters/${chapterId}/translate`, {
         method: "POST",
         body: JSON.stringify(buildTranslatePayload()),
@@ -677,6 +711,8 @@
 
   async function ttsChapter(chapterId) {
     try {
+      state.expandedChapters.add(chapterId);
+      renderChapters();
       const response = await api(`/api/chapters/${chapterId}/tts`, {
         method: "POST",
         body: JSON.stringify(buildTtsPayload()),
@@ -755,6 +791,10 @@
       return;
     }
     state.jobs.set(job.id, job);
+    if (shouldRefreshAudioDuringJob(job)) {
+      state.expandedChapters.add(job.chapter_id);
+      loadAudioMetadataForChapter(job.chapter_id);
+    }
     renderJobs();
     if (terminalStatuses.has(job.status)) {
       clearJobTimer(job.id);
@@ -904,6 +944,25 @@
     });
     const chapters = $("#chapters");
     if (chapters) {
+      chapters.addEventListener(
+        "toggle",
+        (event) => {
+          const card = event.target.closest && event.target.closest(".chapter-card");
+          if (!card || event.target !== card) {
+            return;
+          }
+          const chapterId = Number(card.dataset.chapterId);
+          if (!Number.isFinite(chapterId)) {
+            return;
+          }
+          if (card.open) {
+            state.expandedChapters.add(chapterId);
+          } else {
+            state.expandedChapters.delete(chapterId);
+          }
+        },
+        true,
+      );
       chapters.addEventListener("click", (event) => {
         const target = event.target.closest("button");
         if (!target) {
@@ -937,6 +996,8 @@
     bookPreviewUrl,
     renderSegmentLinks,
     renderChapterAudioPanel,
+    shouldRefreshAudioDuringJob,
+    chapterDetailsShouldOpen,
     jobMarkup,
     chapterJobsMarkup,
     jobActionOptions,
