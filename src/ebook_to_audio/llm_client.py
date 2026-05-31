@@ -39,7 +39,7 @@ class LLMClient:
             "temperature": 0.2,
         }
         headers = {"Authorization": f"Bearer {provider.api_key}"}
-        attempts = max(1, max_retries)
+        attempts = 1 + max(0, max_retries)
         last_error = "LLM request failed"
 
         for attempt in range(attempts):
