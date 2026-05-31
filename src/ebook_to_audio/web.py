@@ -791,6 +791,8 @@ def _option_int_or_none(options: dict[str, Any], key: str) -> int | None:
 
 def _option_non_negative_int(options: dict[str, Any], key: str) -> int | None:
     value = options.get(key)
+    if value is None:
+        return 0
     if isinstance(value, bool):
         return None
     if isinstance(value, int) and value >= 0:

@@ -812,6 +812,8 @@ def _ensure_job_error_message(conn: sqlite3.Connection) -> None:
 
 def _option_content_revision(options: dict[str, Any]) -> int | None:
     value = options.get("chapter_revision")
+    if value is None:
+        return 0
     if isinstance(value, bool):
         return None
     if isinstance(value, int) and value >= 0:
