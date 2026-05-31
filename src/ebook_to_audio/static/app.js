@@ -221,41 +221,17 @@
     }
   }
 
-  function link(label, href, className) {
-    const anchor = document.createElement("a");
-    anchor.className = `button-link ${className || ""}`.trim();
-    anchor.href = href;
-    anchor.textContent = label;
-    return anchor;
-  }
-
-  function previewButton(label, variant) {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.dataset.bookPreview = variant;
-    button.textContent = label;
-    return button;
-  }
-
   function bookPreviewUrl(book, variant) {
     if (!book || book.id == null) {
       return null;
     }
-    const suffixes = {
-      current: "download.txt",
-      full: "download/full.txt",
-      cleaned: "download/cleaned.txt",
-    };
-    const suffix = suffixes[variant] || suffixes.current;
-    return `/api/books/${book.id}/${suffix}`;
+    return variant === "cleaned" ? `/api/books/${book.id}/download/cleaned.txt` : null;
   }
 
   function bookPreviewLabel(variant) {
     return {
-      current: "当前 TXT",
-      full: "完整 TXT",
       cleaned: "清理后 TXT",
-    }[variant] || "当前 TXT";
+    }[variant] || "文本";
   }
 
   function setHref(selector, href) {
@@ -404,11 +380,9 @@
 
   function renderBook() {
     const info = $("#bookInfo");
-    const downloads = $("#bookDownloads");
-    if (!info || !downloads) {
+    if (!info) {
       return;
     }
-    downloads.replaceChildren();
     if (!state.book) {
       info.textContent = "尚未导入书籍。";
       setHref("#bookTranslationsZip", null);
@@ -418,14 +392,6 @@
     info.innerHTML = `<strong>${escapeHtml(state.book.title)}</strong><br>${escapeHtml(
       state.book.original_filename,
     )} · ${escapeHtml(state.book.source_format)}`;
-    downloads.append(
-      previewButton("查看当前 TXT", "current"),
-      previewButton("查看完整 TXT", "full"),
-      previewButton("查看清理 TXT", "cleaned"),
-      link("下载当前 TXT", `/api/books/${state.book.id}/download.txt`),
-      link("下载完整 TXT", `/api/books/${state.book.id}/download/full.txt`),
-      link("下载清理 TXT", `/api/books/${state.book.id}/download/cleaned.txt`),
-    );
     updateBookArtifactLinks();
   }
 
@@ -932,11 +898,6 @@
       previewCleaned.addEventListener("click", () => openBookPreview("cleaned"));
     }
     document.addEventListener("click", (event) => {
-      const previewTarget = event.target.closest("button[data-book-preview]");
-      if (previewTarget) {
-        openBookPreview(previewTarget.dataset.bookPreview || "current");
-        return;
-      }
       const jobTarget = event.target.closest("[data-job-action]");
       if (jobTarget) {
         jobAction(Number(jobTarget.dataset.jobId), jobTarget.dataset.jobAction);
