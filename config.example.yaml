@@ -24,6 +24,6 @@ tts:
   max_request_chars: 900
   default_parallel_segments: 2
 limits:
-  max_upload_bytes: 1000000
+  max_upload_bytes: 20971520
   max_parallel_translation_segments: 3
   max_parallel_tts_segments: 4

@@ -3,7 +3,7 @@ from zipfile import ZipFile
 
 from fastapi.testclient import TestClient
 
-from ebook_to_audio.config import PRESET_TTS_VOICES
+from ebook_to_audio.config import DEFAULT_MAX_UPLOAD_BYTES, PRESET_TTS_VOICES
 from ebook_to_audio.web import create_app
 
 
@@ -139,10 +139,24 @@ def test_oversize_upload_returns_413(tmp_path: Path):
 
     upload = client.post(
         "/api/books",
-        files={"file": ("book.txt", b"x" * 1_000_001, "text/plain")},
+        files={"file": ("book.txt", b"x" * (DEFAULT_MAX_UPLOAD_BYTES + 1), "text/plain")},
     )
 
     assert upload.status_code == 413
+
+
+def test_default_upload_limit_accepts_books_over_one_megabyte(tmp_path: Path):
+    app = create_app(data_dir=tmp_path, config_path=tmp_path / "missing.yaml", autostart_jobs=False)
+    client = TestClient(app)
+    content = ("第一章\n" + ("内容" * 220_000)).encode("utf-8")
+    assert len(content) > 1_300_000
+
+    upload = client.post(
+        "/api/books",
+        files={"file": ("large-book.txt", content, "text/plain")},
+    )
+
+    assert upload.status_code == 200
 
 
 def test_missing_chapter_file_zip_download_returns_safe_error(tmp_path: Path):

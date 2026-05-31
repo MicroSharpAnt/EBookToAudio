@@ -17,6 +17,7 @@ cp config.example.yaml config.yaml
 ```
 
 Edit `config.yaml` with your provider API keys and model settings.
+For existing installs, keep `limits.max_upload_bytes` at `20971520` or higher to allow normal EPUB/TXT imports.
 
 ## Run
 

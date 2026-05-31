@@ -18,6 +18,7 @@ from .chapter_splitter import split_into_chapters
 from .config import (
     AppConfig,
     ConfigError,
+    DEFAULT_MAX_UPLOAD_BYTES,
     DEFAULT_TTS_VOICE,
     LimitsConfig,
     PRESET_TTS_VOICES,
@@ -36,7 +37,6 @@ from .storage import LocalStorage, PathSafetyError, chapter_metadata
 from .text_cleaner import clean_text
 
 
-DEFAULT_MAX_UPLOAD_BYTES = 1_000_000
 UPLOAD_READ_CHUNK_BYTES = 64 * 1024
 _TERMINAL_JOB_STATUSES = {
     JobStatus.COMPLETED,
