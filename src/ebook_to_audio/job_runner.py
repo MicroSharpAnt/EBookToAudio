@@ -243,10 +243,7 @@ class JobRunner:
         if merge:
             merged_path = self.merge_chapter_audio(job_id)
             if merged_path is not None:
-                current_job = self.repository.get_job(job_id)
-                chapter = self.repository.get_chapter(current_job.chapter_id)
-                if self._is_latest_tts_job_for_chapter(current_job):
-                    self.repository.update_chapter_audio_path(chapter.id, merged_path)
+                self.repository.promote_chapter_audio_path_if_latest_tts_job(job_id, merged_path)
         return self.repository.refresh_job_progress(job_id)
 
     def _ensure_tts_segments(self, job: Job) -> None:
@@ -348,12 +345,6 @@ class JobRunner:
         except Exception as exc:
             self.repository.fail_job(job_id, str(exc))
             return None
-
-    def _is_latest_tts_job_for_chapter(self, job: Job) -> bool:
-        for existing in self.repository.list_jobs(job.book_id):
-            if existing.chapter_id == job.chapter_id and existing.kind == JobKind.TTS:
-                return existing.id == job.id
-        return False
 
 
 def _with_api_key_override(

@@ -145,6 +145,20 @@ def test_resume_job_does_not_start_unpaused_pending_job(tmp_path: Path):
     assert repo.get_job(job.id).status == JobStatus.PENDING
 
 
+def test_promote_chapter_audio_path_only_for_latest_tts_job(tmp_path: Path):
+    repo = Repository(tmp_path / "app.db")
+    repo.initialize()
+    book = repo.create_book("Title", "txt", "book.txt", "s", "f", "c")
+    chapter = repo.create_chapter(book.id, 0, "第一章", "books/1/chapters/0000.txt", 10, 2)
+    older = repo.create_job(book.id, chapter.id, JobKind.TTS, total_units=1, options={})
+    newer = repo.create_job(book.id, chapter.id, JobKind.TTS, total_units=1, options={})
+
+    assert repo.promote_chapter_audio_path_if_latest_tts_job(older.id, "old.wav") is False
+    assert repo.get_chapter(chapter.id).audio_path is None
+    assert repo.promote_chapter_audio_path_if_latest_tts_job(newer.id, "new.wav") is True
+    assert repo.get_chapter(chapter.id).audio_path == "new.wav"
+
+
 def test_refresh_job_progress_uses_segment_count_when_total_units_differs(tmp_path: Path):
     repo = Repository(tmp_path / "app.db")
     _, _, job, segments = _create_segmented_job(repo, total_units=99)
