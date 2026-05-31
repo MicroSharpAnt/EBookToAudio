@@ -7,7 +7,7 @@ import shutil
 from typing import Any, Literal
 import wave
 
-from fastapi import BackgroundTasks, FastAPI, File, HTTPException, UploadFile
+from fastapi import BackgroundTasks, Body, FastAPI, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
 from pydantic import BaseModel
 
@@ -26,7 +26,7 @@ from .config import (
 )
 from .job_runner import JobRunner, _chapter_segments
 from .mimo_client import MimoTTSClient, MissingMimoApiKey
-from .models import Book, Chapter, Job, JobKind, Segment
+from .models import Book, Chapter, Job, JobKind, JobStatus, Segment
 from .repository import Repository
 from .storage import LocalStorage, PathSafetyError, chapter_metadata
 from .text_cleaner import clean_text
@@ -34,6 +34,12 @@ from .text_cleaner import clean_text
 
 DEFAULT_MAX_UPLOAD_BYTES = 1_000_000
 UPLOAD_READ_CHUNK_BYTES = 64 * 1024
+_TERMINAL_JOB_STATUSES = {
+    JobStatus.COMPLETED,
+    JobStatus.COMPLETED_WITH_ERRORS,
+    JobStatus.FAILED,
+    JobStatus.STOPPED,
+}
 
 
 class CleanRequest(BaseModel):
@@ -66,6 +72,10 @@ class TTSRequest(BaseModel):
     parallel_segments: int | None = None
     merge: bool = True
     source: Literal["chapter", "translation"] = "chapter"
+
+
+class ResumeRequest(BaseModel):
+    api_key: str | None = None
 
 
 def create_app(
@@ -264,10 +274,83 @@ def create_app(
         return _job_dict(repository.get_job(job_id))
 
     @app.post("/api/jobs/{job_id}/resume")
-    def resume_job(job_id: int) -> dict[str, Any]:
-        _get_job_or_404(repository, job_id)
+    async def resume_job(
+        job_id: int,
+        background_tasks: BackgroundTasks,
+        request: ResumeRequest = Body(default_factory=ResumeRequest),
+    ) -> dict[str, Any]:
+        job = _get_job_or_404(repository, job_id)
+        if job.status in _TERMINAL_JOB_STATUSES or job.stop_requested:
+            return _job_dict(job)
         repository.resume_job(job_id)
-        return _job_dict(repository.get_job(job_id))
+        resumed = repository.get_job(job_id)
+        if resumed.status in _TERMINAL_JOB_STATUSES or resumed.stop_requested:
+            return _job_dict(resumed)
+
+        if resumed.kind == JobKind.TRANSLATE:
+            translation_config = _translation_config_for_job(
+                loaded_config.translation,
+                resumed,
+                request.api_key,
+                use_fake_clients,
+            )
+            parallel_segments = _option_int(
+                resumed.options,
+                "parallel_segments",
+                loaded_config.limits.max_parallel_translation_segments,
+            )
+            if autostart_jobs:
+                background_tasks.add_task(
+                    runner.run_translation_job,
+                    resumed.id,
+                    translation_config,
+                    parallel_segments,
+                )
+                return _job_dict(resumed)
+            return _job_dict(
+                await runner.run_translation_job(
+                    resumed.id,
+                    translation_config,
+                    parallel_segments,
+                )
+            )
+
+        if resumed.kind == JobKind.TTS:
+            tts_request = _tts_request_for_job(resumed, request.api_key)
+            tts_client = _tts_client_for_request(loaded_config, tts_request, use_fake_clients)
+            if tts_client is None:
+                raise HTTPException(status_code=400, detail="TTS API key is required to resume job")
+            voice = str(resumed.options.get("voice") or loaded_config.tts.default_voice or "Cherry")
+            context = str(resumed.options.get("context") or "")
+            parallel_segments = _option_int(
+                resumed.options,
+                "parallel_segments",
+                loaded_config.limits.max_parallel_tts_segments,
+            )
+            merge = bool(resumed.options.get("merge", True))
+            if autostart_jobs:
+                background_tasks.add_task(
+                    runner.run_tts_job,
+                    resumed.id,
+                    voice,
+                    context,
+                    parallel_segments,
+                    merge,
+                    tts_client,
+                )
+                return _job_dict(resumed)
+            return _job_dict(
+                await runner.run_tts_job(
+                    resumed.id,
+                    voice=voice,
+                    context=context,
+                    parallel_segments=parallel_segments,
+                    merge=merge,
+                    tts_client=tts_client,
+                )
+            )
+
+        return _job_dict(resumed)
 
     @app.post("/api/jobs/{job_id}/stop")
     def stop_job(job_id: int) -> dict[str, Any]:
@@ -329,14 +412,17 @@ def create_app(
             request.parallel_segments,
             loaded_config.limits.max_parallel_translation_segments,
         )
+        job = _create_translation_job(
+            repository,
+            storage,
+            chapter_id,
+            translation_config,
+            parallel_segments,
+            request.provider,
+            request.prompt,
+            request.context,
+        )
         if autostart_jobs:
-            job = _create_translation_job(
-                repository,
-                storage,
-                chapter_id,
-                translation_config,
-                parallel_segments,
-            )
             background_tasks.add_task(
                 runner.run_translation_job,
                 job.id,
@@ -344,13 +430,13 @@ def create_app(
                 parallel_segments,
             )
             return _job_dict(job)
-        job = await runner.start_translation(
-            chapter_id,
-            translation_config,
-            parallel_segments,
-            api_key_override=request.api_key,
+        return _job_dict(
+            await runner.run_translation_job(
+                job.id,
+                translation_config,
+                parallel_segments,
+            )
         )
-        return _job_dict(job)
 
     @app.post("/api/chapters/{chapter_id}/tts")
     async def tts_chapter(
@@ -364,8 +450,6 @@ def create_app(
         tts_client = _tts_client_for_request(loaded_config, request, use_fake_clients)
         if tts_client is None:
             raise HTTPException(status_code=400, detail="TTS API key is required")
-        runner.tts_client = tts_client
-
         voice = request.voice or loaded_config.tts.default_voice or "Cherry"
         context = _tts_context(request)
         parallel_segments = _bounded_parallel(
@@ -384,6 +468,8 @@ def create_app(
                 parallel_segments,
                 request.merge,
                 request.provider,
+                request.base_url,
+                request.model,
             )
             background_tasks.add_task(
                 runner.run_tts_job,
@@ -392,6 +478,7 @@ def create_app(
                 context,
                 parallel_segments,
                 request.merge,
+                tts_client,
             )
             return _job_dict(job)
         job = _create_tts_job(
@@ -405,6 +492,8 @@ def create_app(
             parallel_segments,
             request.merge,
             request.provider,
+            request.base_url,
+            request.model,
         )
         return _job_dict(
             await runner.run_tts_job(
@@ -413,6 +502,7 @@ def create_app(
                 context=context,
                 parallel_segments=parallel_segments,
                 merge=request.merge,
+                tts_client=tts_client,
             )
         )
 
@@ -498,12 +588,13 @@ def create_app(
     @app.get("/api/chapters/{chapter_id}/audio/download.zip")
     def download_audio_zip(chapter_id: int) -> FileResponse:
         chapter = _get_chapter_or_404(repository, chapter_id)
-        if chapter.audio_path is None:
+        paths = _chapter_audio_paths(repository, chapter)
+        if not paths:
             raise HTTPException(status_code=404, detail="audio not found")
         return _zip_response(
             storage,
             f"books/{chapter.book_id}/downloads/audio-{chapter.chapter_index:04d}.zip",
-            [chapter.audio_path],
+            paths,
             f"audio-{chapter.chapter_index + 1}.zip",
         )
 
@@ -535,12 +626,48 @@ def _translation_user_template(prompt: str | None, context: str | None) -> str:
     return "\n\n".join(parts)
 
 
+def _translation_config_for_job(
+    config: TranslationConfig,
+    job: Job,
+    api_key: str | None,
+    use_fake_clients: bool,
+) -> TranslationConfig:
+    request = TranslateRequest(
+        api_key=api_key,
+        provider=_option_str(job.options, "provider"),
+        prompt=_option_str(job.options, "prompt"),
+        context=_option_str(job.options, "context"),
+        parallel_segments=_option_int_or_none(job.options, "parallel_segments"),
+    )
+    translation_config = _translation_config_for_request(config, request)
+    if not use_fake_clients and not translation_config.active.api_key:
+        raise HTTPException(status_code=400, detail="translation API key is required to resume job")
+    return translation_config
+
+
+def _tts_request_for_job(job: Job, api_key: str | None) -> TTSRequest:
+    return TTSRequest(
+        provider=_option_str(job.options, "provider"),
+        api_key=api_key,
+        base_url=_option_str(job.options, "base_url"),
+        model=_option_str(job.options, "model"),
+        voice=_option_str(job.options, "voice"),
+        context=_option_str(job.options, "context") or "",
+        parallel_segments=_option_int_or_none(job.options, "parallel_segments"),
+        merge=bool(job.options.get("merge", True)),
+        source=_option_source(job.options),
+    )
+
+
 def _create_translation_job(
     repository: Repository,
     storage: LocalStorage,
     chapter_id: int,
     config: TranslationConfig,
     parallel_segments: int,
+    provider: str | None = None,
+    prompt: str | None = None,
+    context: str | None = None,
 ) -> Job:
     chapter = repository.get_chapter(chapter_id)
     source_segments = _chapter_segments(storage.read_text(chapter.text_path), config.segment_limit)
@@ -549,7 +676,12 @@ def _create_translation_job(
         chapter.id,
         JobKind.TRANSLATE,
         len(source_segments),
-        {"parallel_segments": parallel_segments},
+        {
+            "provider": provider or config.active_provider_name,
+            "prompt": prompt,
+            "context": context,
+            "parallel_segments": parallel_segments,
+        },
     )
     if not source_segments:
         repository.fail_job(job.id, "chapter has no translatable text")
@@ -569,6 +701,8 @@ def _create_tts_job(
     parallel_segments: int,
     merge: bool,
     provider: str | None = None,
+    base_url: str | None = None,
+    model: str | None = None,
 ) -> Job:
     source_path = chapter.translation_path if source == "translation" else chapter.text_path
     if source_path is None:
@@ -586,6 +720,8 @@ def _create_tts_job(
             "merge": merge,
             "source": source,
             "provider": provider,
+            "base_url": base_url,
+            "model": model,
         },
     )
     if not source_segments:
@@ -601,6 +737,31 @@ def _bounded_parallel(value: int | None, maximum: int) -> int:
     if value < 1:
         raise HTTPException(status_code=400, detail="parallel_segments must be positive")
     return min(value, max(1, maximum))
+
+
+def _option_str(options: dict[str, Any], key: str) -> str | None:
+    value = options.get(key)
+    if isinstance(value, str) and value.strip():
+        return value
+    return None
+
+
+def _option_int(options: dict[str, Any], key: str, default: int) -> int:
+    value = _option_int_or_none(options, key)
+    return default if value is None else value
+
+
+def _option_int_or_none(options: dict[str, Any], key: str) -> int | None:
+    value = options.get(key)
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int) and value > 0:
+        return value
+    return None
+
+
+def _option_source(options: dict[str, Any]) -> Literal["chapter", "translation"]:
+    return "translation" if options.get("source") == "translation" else "chapter"
 
 
 def _tts_context(request: TTSRequest) -> str:
@@ -649,17 +810,27 @@ def _audio_segment_dict(chapter_id: int, segment: Segment) -> dict[str, Any]:
     }
 
 
+def _chapter_audio_paths(repository: Repository, chapter: Chapter) -> list[str]:
+    paths: list[str] = []
+    seen: set[str] = set()
+    if chapter.audio_path is not None:
+        paths.append(chapter.audio_path)
+        seen.add(chapter.audio_path)
+    for segment in _audio_segments_for_chapter(repository, chapter):
+        if segment.output_path is not None and segment.output_path not in seen:
+            paths.append(segment.output_path)
+            seen.add(segment.output_path)
+    return paths
+
+
 def _book_audio_paths(repository: Repository, book_id: int) -> list[str]:
     paths: list[str] = []
     seen: set[str] = set()
     for chapter in repository.list_chapters(book_id):
-        if chapter.audio_path is not None and chapter.audio_path not in seen:
-            paths.append(chapter.audio_path)
-            seen.add(chapter.audio_path)
-        for segment in _audio_segments_for_chapter(repository, chapter):
-            if segment.output_path is not None and segment.output_path not in seen:
-                paths.append(segment.output_path)
-                seen.add(segment.output_path)
+        for path in _chapter_audio_paths(repository, chapter):
+            if path not in seen:
+                paths.append(path)
+                seen.add(path)
     return paths
 
 

@@ -207,8 +207,10 @@ class JobRunner:
         context: str,
         parallel_segments: int,
         merge: bool = True,
+        tts_client: Any | None = None,
     ) -> Job:
-        if self.tts_client is None:
+        active_tts_client = tts_client or self.tts_client
+        if active_tts_client is None:
             raise RuntimeError("tts_client is required to run TTS jobs")
         job = self.repository.get_job(job_id)
         if job.kind != JobKind.TTS:
@@ -226,7 +228,7 @@ class JobRunner:
         worker_count = max(1, parallel_segments)
         await asyncio.gather(
             *(
-                self._synthesize_pending_segments(job_id, voice, context)
+                self._synthesize_pending_segments(job_id, voice, context, active_tts_client)
                 for _ in range(worker_count)
             )
         )
@@ -260,6 +262,7 @@ class JobRunner:
         job_id: int,
         voice: str,
         context: str,
+        tts_client: Any,
     ) -> None:
         while True:
             job = self.repository.get_job(job_id)
@@ -279,7 +282,7 @@ class JobRunner:
                     extension="wav",
                 )
                 await asyncio.to_thread(
-                    self.tts_client.synthesize,
+                    tts_client.synthesize,
                     segment.source_text,
                     voice,
                     context,
