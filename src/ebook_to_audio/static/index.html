@@ -71,12 +71,11 @@
             <label>API Key <input id="ttsApiKey" type="password" autocomplete="off" /></label>
             <label>Base URL <input id="ttsBaseUrl" placeholder="可选" /></label>
             <label>Model <input id="ttsModel" placeholder="可选" /></label>
-            <label>Voice <input id="ttsVoice" value="Cherry" /></label>
+            <label>音色
+              <select id="ttsVoice"></select>
+            </label>
             <label>并行段数 <input id="ttsParallel" type="number" min="1" value="1" /></label>
-            <label>旁白风格 <input id="narrationStyle" placeholder="舒缓、紧张、纪实..." /></label>
-            <label>角色语气 <input id="characterTone" placeholder="坚定、温柔、冷静..." /></label>
-            <label>作品背景 <textarea id="workBackground" rows="3"></textarea></label>
-            <label>通用上下文 <textarea id="ttsContext" rows="3"></textarea></label>
+            <label>上下文提示 <textarea id="ttsContext" rows="4" placeholder="旁白风格、角色语气、作品背景或通用上下文"></textarea></label>
             <label>文本来源
               <select id="ttsSource">
                 <option value="chapter">原文章节</option>

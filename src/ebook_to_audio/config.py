@@ -11,6 +11,10 @@ class ConfigError(ValueError):
     """Raised when application configuration is invalid."""
 
 
+PRESET_TTS_VOICES = ("冰糖", "茉莉", "苏打", "白桦", "Mia", "Chloe", "Milo", "Dean")
+DEFAULT_TTS_VOICE = PRESET_TTS_VOICES[0]
+
+
 @dataclass(frozen=True)
 class ProviderConfig:
     base_url: str
@@ -87,7 +91,8 @@ class AppConfig:
             "tts": {
                 "base_url": self.tts.base_url,
                 "model": self.tts.model,
-                "default_voice": self.tts.default_voice,
+                "default_voice": supported_tts_voice_or_default(self.tts.default_voice),
+                "voices": list(PRESET_TTS_VOICES),
                 "max_request_chars": self.tts.max_request_chars,
                 "default_parallel_segments": self.tts.default_parallel_segments,
                 "has_api_key": bool(self.tts.api_key),
@@ -197,6 +202,12 @@ def _load_yaml(path: Path) -> dict[str, Any]:
     if not isinstance(loaded, dict):
         raise ConfigError("config must be a mapping")
     return loaded
+
+
+def supported_tts_voice_or_default(voice: str | None) -> str:
+    if voice and voice.strip() in PRESET_TTS_VOICES:
+        return voice.strip()
+    return DEFAULT_TTS_VOICE
 
 
 def _build_prompt(raw: dict[str, Any]) -> PromptConfig:

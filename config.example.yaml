@@ -20,7 +20,7 @@ tts:
   base_url: "https://token-plan-cn.xiaomimimo.com/v1"
   api_key: "replace-with-mimo-api-key"
   model: "mimo-audio"
-  default_voice: "Cherry"
+  default_voice: "冰糖"
   max_request_chars: 900
   default_parallel_segments: 2
 limits:

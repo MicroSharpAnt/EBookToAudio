@@ -76,7 +76,10 @@ class MimoTTSClient:
                 f"MiMo response did not include audio data after {self.retries} attempts; "
                 f"last response: {last_error.response_summary}"
             ) from last_error
-        raise RuntimeError(f"MiMo synthesis failed after {self.retries} attempts") from last_error
+        raise RuntimeError(
+            f"MiMo synthesis failed after {self.retries} attempts; "
+            f"last error: {type(last_error).__name__}: {_short_text(last_error)}"
+        ) from last_error
 
     def _create_completion(self, messages: list[dict[str, str]], voice: str) -> Any:
         return self.client.chat.completions.create(

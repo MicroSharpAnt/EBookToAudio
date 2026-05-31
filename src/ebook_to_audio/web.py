@@ -18,12 +18,15 @@ from .chapter_splitter import split_into_chapters
 from .config import (
     AppConfig,
     ConfigError,
+    DEFAULT_TTS_VOICE,
     LimitsConfig,
+    PRESET_TTS_VOICES,
     PromptConfig,
     ProviderConfig,
     TTSConfig,
     TranslationConfig,
     load_config,
+    supported_tts_voice_or_default,
 )
 from .job_runner import JobRunner, _chapter_segments
 from .mimo_client import MimoTTSClient, MissingMimoApiKey
@@ -334,7 +337,7 @@ def create_app(
             tts_client = _tts_client_for_request(loaded_config, tts_request, use_fake_clients)
             if tts_client is None:
                 raise HTTPException(status_code=400, detail="TTS API key is required to resume job")
-            voice = str(job.options.get("voice") or loaded_config.tts.default_voice or "Cherry")
+            voice = _resolve_tts_voice(str(job.options.get("voice") or ""), loaded_config.tts.default_voice)
             context = str(job.options.get("context") or "")
             parallel_segments = _option_int(
                 job.options,
@@ -469,7 +472,7 @@ def create_app(
         tts_client = _tts_client_for_request(loaded_config, request, use_fake_clients)
         if tts_client is None:
             raise HTTPException(status_code=400, detail="TTS API key is required")
-        voice = request.voice or loaded_config.tts.default_voice or "Cherry"
+        voice = _resolve_tts_voice(request.voice, loaded_config.tts.default_voice)
         context = _tts_context(request)
         parallel_segments = _bounded_parallel(
             request.parallel_segments or loaded_config.tts.default_parallel_segments,
@@ -921,6 +924,16 @@ def _validate_tts_provider(provider: str | None) -> None:
     raise HTTPException(status_code=400, detail=f"unsupported TTS provider: {provider}")
 
 
+def _resolve_tts_voice(requested_voice: str | None, configured_voice: str | None) -> str:
+    if requested_voice and requested_voice.strip():
+        voice = requested_voice.strip()
+        if voice in PRESET_TTS_VOICES:
+            return voice
+        supported = ", ".join(PRESET_TTS_VOICES)
+        raise HTTPException(status_code=400, detail=f"unsupported TTS voice: {voice}; supported voices: {supported}")
+    return supported_tts_voice_or_default(configured_voice)
+
+
 def _file_response(
     storage: LocalStorage,
     relative_path: str,
@@ -1016,7 +1029,7 @@ def _default_config(data_dir: Path, limits: LimitsConfig | None) -> AppConfig:
         base_url="",
         api_key="",
         model="",
-        default_voice="",
+        default_voice=DEFAULT_TTS_VOICE,
         max_request_chars=900,
         default_parallel_segments=2,
     )

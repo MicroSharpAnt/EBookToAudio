@@ -32,6 +32,17 @@ _INVISIBLE_CHARACTERS = str.maketrans(
 )
 _SPACING_RE = re.compile(r"[ \t\f\v\u00a0\u3000]+")
 _EXCESS_BLANK_LINES_RE = re.compile(r"\n{3,}")
+_CJK = r"\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff"
+_CJK_INNER_SPACE_RE = re.compile(fr"(?<=[{_CJK}]) (?=[{_CJK}])")
+_CJK_BEFORE_PUNCT_SPACE_RE = re.compile(
+    r"(?<=[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]) (?=[，。！？；：、,.!?;:）】》」』])"
+)
+_CJK_AFTER_OPEN_PUNCT_SPACE_RE = re.compile(
+    r"(?<=[（【《「『]) (?=[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff])"
+)
+_CJK_AFTER_PUNCT_SPACE_RE = re.compile(
+    r"(?<=[，。！？；：、]) (?=[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff])"
+)
 _STANDALONE_URL_OR_DOMAIN_RE = re.compile(
     r"^[\s:：\-—_=*【】\[\]（）()《》<>|]*(?:https?://\S+|www\.\S+|"
     r"[A-Za-z0-9-]+\.(?:com|net|org|cn|cc|vip|xyz|top|info)(?:/\S*)?)"
@@ -64,7 +75,7 @@ def remove_watermarks(text: str) -> CleanResult:
 def normalize_spacing(text: str) -> CleanResult:
     before_chars = len(text)
     normalized = text.replace("\r\n", "\n").replace("\r", "\n").translate(_INVISIBLE_CHARACTERS)
-    lines = [_SPACING_RE.sub(" ", line).strip() for line in normalized.split("\n")]
+    lines = [_normalize_line_spacing(line) for line in normalized.split("\n")]
     cleaned = _EXCESS_BLANK_LINES_RE.sub("\n\n", "\n".join(lines)).strip()
     removed_lines = max(0, len(lines) - len(cleaned.split("\n"))) if cleaned else len(lines)
 
@@ -129,6 +140,15 @@ def _is_short_noise_candidate(line: str, max_line_chars: int) -> bool:
         or _DECORATIVE_LINE_RE.match(stripped)
         or re.search(r"(广告|发布页|防盗|盗版|来源|书源|推广)", stripped, re.IGNORECASE)
     )
+
+
+def _normalize_line_spacing(line: str) -> str:
+    compacted = _SPACING_RE.sub(" ", line).strip()
+    compacted = _CJK_INNER_SPACE_RE.sub("", compacted)
+    compacted = _CJK_BEFORE_PUNCT_SPACE_RE.sub("", compacted)
+    compacted = _CJK_AFTER_OPEN_PUNCT_SPACE_RE.sub("", compacted)
+    compacted = _CJK_AFTER_PUNCT_SPACE_RE.sub("", compacted)
+    return compacted
 
 
 def _result(operation: str, text: str, before_chars: int, removed_lines: int) -> CleanResult:

@@ -155,3 +155,22 @@ def test_mimo_client_reports_missing_audio_for_dict_completion(tmp_path: Path):
 
     with pytest.raises(MimoTTSResponseError, match="content=text only"):
         tts.synthesize("正文", "Cherry", "", tmp_path / "out.wav")
+
+
+def test_mimo_client_reports_last_api_error_after_retries(tmp_path: Path):
+    class FailingCompletions:
+        def create(self, **kwargs):
+            raise RuntimeError("unsupported voice: Cherry")
+
+    client = SimpleNamespace(chat=SimpleNamespace(completions=FailingCompletions()))
+    tts = MimoTTSClient(
+        api_key="sk-test",
+        base_url="https://example.invalid",
+        model="mimo",
+        openai_client=client,
+        retries=2,
+        sleeper=lambda _: None,
+    )
+
+    with pytest.raises(RuntimeError, match="unsupported voice: Cherry"):
+        tts.synthesize("正文", "Cherry", "", tmp_path / "out.wav")

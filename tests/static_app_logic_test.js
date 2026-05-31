@@ -59,6 +59,31 @@ assert.strictEqual(
   sandbox.window.EBookToAudio.buildTranslatePayload({}).prompt,
   "将文章翻译为中文",
 );
+const ttsPayload = sandbox.window.EBookToAudio.buildTtsPayload({
+  ttsProvider: "mimo",
+  ttsApiKey: "sk-tts",
+  ttsBaseUrl: "https://token-plan-cn.xiaomimimo.com/v1",
+  ttsModel: "mimo-v2.5-tts",
+  ttsVoice: "茉莉",
+  ttsContext: "旁白舒缓，人物语气克制，背景为鲁迅散文。",
+  ttsParallel: 2,
+  ttsSource: "translation",
+  mergeAudio: false,
+});
+assert.deepStrictEqual(plain(ttsPayload), {
+  provider: "mimo",
+  api_key: "sk-tts",
+  base_url: "https://token-plan-cn.xiaomimimo.com/v1",
+  model: "mimo-v2.5-tts",
+  voice: "茉莉",
+  context: "旁白舒缓，人物语气克制，背景为鲁迅散文。",
+  parallel_segments: 2,
+  source: "translation",
+  merge: false,
+});
+assert.strictEqual(Object.prototype.hasOwnProperty.call(ttsPayload, "narration_style"), false);
+assert.strictEqual(Object.prototype.hasOwnProperty.call(ttsPayload, "character_tone"), false);
+assert.strictEqual(Object.prototype.hasOwnProperty.call(ttsPayload, "work_background"), false);
 assert.deepStrictEqual(
   plain(sandbox.window.EBookToAudio.jobActionOptions(
     { id: 10, kind: "translate" },
