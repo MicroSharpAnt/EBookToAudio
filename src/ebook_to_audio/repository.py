@@ -200,6 +200,28 @@ class Repository:
                 (audio_path, chapter_id),
             )
 
+    def promote_chapter_audio_path_if_latest_tts_job(self, job_id: int, audio_path: str) -> bool:
+        with self._connection() as conn:
+            job = self.get_job(job_id, conn=conn)
+            if job.kind != JobKind.TTS or job.chapter_id is None:
+                return False
+            cursor = conn.execute(
+                """
+                UPDATE chapters
+                SET audio_path = ?
+                WHERE id = ?
+                  AND NOT EXISTS (
+                      SELECT 1
+                      FROM jobs
+                      WHERE jobs.chapter_id = ?
+                        AND jobs.kind = ?
+                        AND jobs.id > ?
+                  )
+                """,
+                (audio_path, job.chapter_id, job.chapter_id, JobKind.TTS, job.id),
+            )
+            return cursor.rowcount == 1
+
     def create_job(
         self,
         book_id: int,
