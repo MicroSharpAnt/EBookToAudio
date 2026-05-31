@@ -1,4 +1,5 @@
 from pathlib import Path
+from zipfile import ZipFile
 
 from fastapi.testclient import TestClient
 
@@ -6,11 +7,16 @@ from ebook_to_audio.models import JobStatus
 from ebook_to_audio.web import create_app
 
 
-def _chapter_id(client: TestClient) -> int:
+def _book_and_chapter_id(client: TestClient) -> tuple[int, int]:
     upload = client.post("/api/books", files={"file": ("book.txt", "第一章\n一二三四五六".encode("utf-8"), "text/plain")})
     book_id = upload.json()["id"]
     client.post(f"/api/books/{book_id}/split")
-    return client.get(f"/api/books/{book_id}/chapters").json()[0]["id"]
+    chapter_id = client.get(f"/api/books/{book_id}/chapters").json()[0]["id"]
+    return book_id, chapter_id
+
+
+def _chapter_id(client: TestClient) -> int:
+    return _book_and_chapter_id(client)[1]
 
 
 def test_translate_endpoint_creates_translation_and_download(tmp_path: Path):
@@ -25,6 +31,30 @@ def test_translate_endpoint_creates_translation_and_download(tmp_path: Path):
     download = client.get(f"/api/chapters/{chapter_id}/translation/download.txt")
     assert download.status_code == 200
     assert "译文" in download.text
+
+
+def test_translate_endpoint_accepts_prompt_context_and_book_zip(tmp_path: Path):
+    app = create_app(data_dir=tmp_path, config_path=tmp_path / "config.yaml", autostart_jobs=False, use_fake_clients=True)
+    client = TestClient(app)
+    book_id, chapter_id = _book_and_chapter_id(client)
+
+    response = client.post(
+        f"/api/chapters/{chapter_id}/translate",
+        json={"parallel_segments": 1, "provider": "default", "prompt": "翻译成英文", "context": "保留专有名词"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["status"] == JobStatus.COMPLETED
+    download = client.get(f"/api/books/{book_id}/translations/download.zip")
+    assert download.status_code == 200
+    zip_path = tmp_path / "translations.zip"
+    zip_path.write_bytes(download.content)
+    with ZipFile(zip_path) as archive:
+        names = archive.namelist()
+        assert any(name.endswith(".txt") for name in names)
+        text = archive.read(names[0]).decode("utf-8")
+    assert "翻译成英文" in text
+    assert "保留专有名词" in text
 
 
 def test_tts_endpoint_creates_audio_and_controls_are_idempotent(tmp_path: Path):
@@ -44,3 +74,45 @@ def test_tts_endpoint_creates_audio_and_controls_are_idempotent(tmp_path: Path):
     assert client.post(f"/api/jobs/{job_id}/stop").status_code == 200
     audio = client.get(f"/api/chapters/{chapter_id}/audio/download")
     assert audio.status_code == 200
+
+
+def test_tts_endpoint_exposes_segment_audio_and_book_zip(tmp_path: Path):
+    app = create_app(data_dir=tmp_path, config_path=tmp_path / "config.yaml", autostart_jobs=False, use_fake_clients=True)
+    client = TestClient(app)
+    book_id, chapter_id = _book_and_chapter_id(client)
+
+    response = client.post(
+        f"/api/chapters/{chapter_id}/tts",
+        json={
+            "provider": "mimo",
+            "voice": "Cherry",
+            "context": "温柔旁白",
+            "narration_style": "舒缓",
+            "character_tone": "坚定",
+            "work_background": "古风修仙",
+            "parallel_segments": 1,
+            "merge": True,
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["options"]["provider"] == "mimo"
+    assert "舒缓" in response.json()["options"]["context"]
+    metadata = client.get(f"/api/chapters/{chapter_id}/audio")
+    assert metadata.status_code == 200
+    segments = metadata.json()["segments"]
+    assert len(segments) == 1
+    listing = client.get(f"/api/chapters/{chapter_id}/audio/segments")
+    assert listing.status_code == 200
+    assert listing.json() == segments
+    segment_download = client.get(segments[0]["download_url"])
+    assert segment_download.status_code == 200
+    assert segment_download.content.startswith(b"RIFF")
+
+    book_audio = client.get(f"/api/books/{book_id}/audio/download.zip")
+    assert book_audio.status_code == 200
+    zip_path = tmp_path / "audio.zip"
+    zip_path.write_bytes(book_audio.content)
+    with ZipFile(zip_path) as archive:
+        names = archive.namelist()
+        assert any(name.endswith(".wav") for name in names)
