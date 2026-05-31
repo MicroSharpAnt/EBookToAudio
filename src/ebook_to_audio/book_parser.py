@@ -24,7 +24,7 @@ class ParsedBook:
     title: str
     source_format: str
     full_text: str
-    initial_chapters: list[ParsedChapter]
+    initial_chapters: tuple[ParsedChapter, ...]
 
 
 def parse_book_bytes(filename: str, content: bytes) -> ParsedBook:
@@ -54,7 +54,7 @@ def parse_txt(title: str, content: bytes) -> ParsedBook:
         title=title,
         source_format="txt",
         full_text=text,
-        initial_chapters=[ParsedChapter(title=title, text=text)],
+        initial_chapters=(ParsedChapter(title=title, text=text),),
     )
 
 
@@ -62,12 +62,12 @@ def parse_epub(title: str, content: bytes) -> ParsedBook:
     if not content:
         raise ParseError("EPUB file is empty")
 
-    with tempfile.NamedTemporaryFile(suffix=".epub") as temp_file:
-        temp_file.write(content)
-        temp_file.flush()
+    with tempfile.TemporaryDirectory() as temp_dir:
+        epub_path = Path(temp_dir) / "book.epub"
+        epub_path.write_bytes(content)
 
         try:
-            book = epub.read_epub(temp_file.name)
+            book = epub.read_epub(str(epub_path))
         except Exception as exc:
             raise ParseError("Could not parse EPUB file") from exc
 
@@ -80,7 +80,7 @@ def parse_epub(title: str, content: bytes) -> ParsedBook:
         title=title,
         source_format="epub",
         full_text=full_text,
-        initial_chapters=chapters,
+        initial_chapters=tuple(chapters),
     )
 
 
@@ -97,7 +97,7 @@ def _extract_epub_chapters(book: epub.EpubBook, fallback_title: str) -> list[Par
         if not text:
             continue
 
-        chapter_title = getattr(item, "title", None) or Path(item.get_name()).stem or fallback_title
+        chapter_title = _extract_document_title(item) or Path(item.get_name()).stem or fallback_title
         chapters.append(ParsedChapter(title=chapter_title, text=text))
 
     return chapters
@@ -114,7 +114,21 @@ def _is_navigation_item(item: ebooklib.epub.EpubItem) -> bool:
 
 def _extract_document_text(item: ebooklib.epub.EpubItem) -> str:
     soup = BeautifulSoup(item.get_content(), "html.parser")
-    return _normalize_line_endings(soup.get_text(separator="\n")).strip()
+    for ignored_tag in soup(["script", "style"]):
+        ignored_tag.decompose()
+
+    lines = _normalize_line_endings(soup.get_text(separator="\n")).splitlines()
+    return "\n".join(line.strip() for line in lines if line.strip())
+
+
+def _extract_document_title(item: ebooklib.epub.EpubItem) -> str | None:
+    soup = BeautifulSoup(item.get_content(), "html.parser")
+    title_tag = soup.find(["h1", "title"])
+    if title_tag is None:
+        return None
+
+    title = title_tag.get_text(separator=" ", strip=True)
+    return title or None
 
 
 def _normalize_line_endings(text: str) -> str:
