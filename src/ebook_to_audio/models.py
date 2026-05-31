@@ -57,6 +57,7 @@ class Chapter:
     char_count: int
     paragraph_count: int
     translation_path: str | None = None
+    audio_path: str | None = None
     created_at: str = ""
 
 
