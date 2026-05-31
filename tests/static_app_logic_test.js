@@ -157,6 +157,68 @@ const segmentMarkup = sandbox.window.EBookToAudio.renderSegmentLinks(3, {
 assert(segmentMarkup.includes("<audio controls"));
 assert(segmentMarkup.includes('src="/api/chapters/3/audio/segments/5/download"'));
 assert(segmentMarkup.includes("下载音频段 1"));
+const chapterAudioMarkup = sandbox.window.EBookToAudio.renderChapterAudioPanel(
+  { id: 3, audio_path: "books/1/audio/chapter.wav" },
+  {
+    download_url: "/api/chapters/3/audio/download",
+    segments: [{ id: 5, segment_index: 0, download_url: "/api/chapters/3/audio/segments/5/download" }],
+  },
+);
+assert(chapterAudioMarkup.includes("chapter-audio-player"));
+assert(chapterAudioMarkup.includes("合并音频"));
+assert(chapterAudioMarkup.includes('src="/api/chapters/3/audio/download"'));
+assert(chapterAudioMarkup.includes("<details"));
+assert(chapterAudioMarkup.includes("查看片段音频 (1)"));
+const completedJobMarkup = sandbox.window.EBookToAudio.jobMarkup({
+  id: 1,
+  kind: "tts",
+  status: "completed",
+  total_units: 3,
+  completed_units: 3,
+  failed_units: 0,
+});
+assert(!completedJobMarkup.includes("data-job-action"));
+const runningJobMarkup = sandbox.window.EBookToAudio.jobMarkup({
+  id: 2,
+  kind: "tts",
+  status: "running",
+  total_units: 3,
+  completed_units: 1,
+  failed_units: 0,
+});
+assert(runningJobMarkup.includes('data-job-action="pause"'));
+assert(!runningJobMarkup.includes('data-job-action="resume"'));
+assert(runningJobMarkup.includes('data-job-action="stop"'));
+const pausedJobMarkup = sandbox.window.EBookToAudio.jobMarkup({
+  id: 3,
+  kind: "tts",
+  status: "paused",
+  total_units: 3,
+  completed_units: 1,
+  failed_units: 0,
+});
+assert(!pausedJobMarkup.includes('data-job-action="pause"'));
+assert(pausedJobMarkup.includes('data-job-action="resume"'));
+assert(pausedJobMarkup.includes('data-job-action="stop"'));
+assert.strictEqual(
+  sandbox.window.EBookToAudio.chapterJobsMarkup([{
+    id: 4,
+    kind: "tts",
+    status: "completed",
+    total_units: 1,
+    completed_units: 1,
+  }]),
+  "",
+);
+assert(
+  sandbox.window.EBookToAudio.chapterJobsMarkup([{
+    id: 5,
+    kind: "translate",
+    status: "running",
+    total_units: 2,
+    completed_units: 1,
+  }]).includes("translate #5"),
+);
 assert.strictEqual(
   sandbox.window.EBookToAudio.buildTranslatePayload({ translationProvider: "default" }).parallel_segments,
   null,
