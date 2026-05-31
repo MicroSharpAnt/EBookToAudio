@@ -83,7 +83,7 @@ def create_app(
         max_upload_bytes = loaded_config.limits.max_upload_bytes
         content = await _read_upload_bytes(file, max_upload_bytes)
 
-        filename = file.filename or "book.txt"
+        filename = _sanitize_upload_filename(file.filename or "book.txt")
         try:
             parsed = parse_book_bytes(filename, content)
         except ParseError as exc:
@@ -97,10 +97,10 @@ def create_app(
             filtered_path="pending",
             cleaned_path="pending",
         )
-        source_path = storage.source_path(book.id, _upload_artifact_filename(filename))
-        filtered_path = storage.filtered_path(book.id)
-        cleaned_path = storage.cleaned_path(book.id)
         try:
+            source_path = storage.source_path(book.id, filename)
+            filtered_path = storage.filtered_path(book.id)
+            cleaned_path = storage.cleaned_path(book.id)
             storage.resolve_artifact(source_path).parent.mkdir(parents=True, exist_ok=True)
             storage.resolve_artifact(source_path).write_bytes(content)
             storage.write_text(filtered_path, parsed.full_text)
@@ -317,9 +317,11 @@ def _clean_result_dict(clean_result: Any) -> dict[str, Any]:
     return data
 
 
-def _upload_artifact_filename(filename: str) -> str:
-    name = Path(filename).name
-    return name if name and name not in {".", ".."} else "source.txt"
+def _sanitize_upload_filename(filename: str) -> str:
+    name = Path(filename.replace("\\", "/")).name
+    if not name or name in {".", ".."}:
+        raise HTTPException(status_code=400, detail="invalid upload filename")
+    return name
 
 
 def _staged_chapter_path(book_id: int, job_id: int, chapter_index: int) -> str:

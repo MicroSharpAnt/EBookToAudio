@@ -50,6 +50,35 @@ def test_failed_upload_does_not_leave_visible_book(tmp_path: Path, monkeypatch):
     assert client.get("/api/books").json() == []
 
 
+def test_upload_windows_path_filename_is_sanitized_before_book_create(tmp_path: Path):
+    app = create_app(data_dir=tmp_path, config_path=tmp_path / "missing.yaml", autostart_jobs=False)
+    client = TestClient(app, raise_server_exceptions=False)
+
+    upload = client.post("/api/books", files={"file": ("bad\\name.txt", b"hello", "text/plain")})
+
+    assert upload.status_code == 200
+    body = upload.json()
+    assert body["original_filename"] == "name.txt"
+    assert body["title"] == "name"
+    assert body["source_format"] == "txt"
+    assert body["source_path"].endswith("/name.txt")
+    assert "\\" not in body["source_path"]
+    assert [book["original_filename"] for book in client.get("/api/books").json()] == ["name.txt"]
+
+
+def test_upload_posix_path_filename_is_sanitized_in_metadata(tmp_path: Path):
+    app = create_app(data_dir=tmp_path, config_path=tmp_path / "missing.yaml", autostart_jobs=False)
+    client = TestClient(app)
+
+    upload = client.post("/api/books", files={"file": ("../book.txt", b"hello", "text/plain")})
+
+    assert upload.status_code == 200
+    body = upload.json()
+    assert body["original_filename"] == "book.txt"
+    assert body["title"] == "book"
+    assert body["source_path"].endswith("/book.txt")
+
+
 def test_repeated_split_failure_preserves_existing_chapters(tmp_path: Path, monkeypatch):
     app = create_app(data_dir=tmp_path, config_path=tmp_path / "missing.yaml", autostart_jobs=False)
     client = TestClient(app, raise_server_exceptions=False)
