@@ -240,7 +240,6 @@ textarea {
 
 .upload-form,
 .button-stack,
-.download-grid,
 .chapter-actions,
 .job-actions,
 .artifact-links {
@@ -291,13 +290,6 @@ textarea {
   align-items: start;
   border-bottom: 1px solid var(--line);
   background: rgba(243, 245, 244, 0.96);
-}
-
-.text-preview-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 7px;
-  justify-content: flex-end;
 }
 
 .download-hub,

@@ -142,7 +142,7 @@ assert.strictEqual(
 );
 assert.strictEqual(
   sandbox.window.EBookToAudio.bookPreviewUrl({ id: 7 }, "current"),
-  "/api/books/7/download.txt",
+  null,
 );
 assert.strictEqual(
   sandbox.window.EBookToAudio.bookPreviewUrl({ id: 7 }, "cleaned"),
@@ -150,7 +150,7 @@ assert.strictEqual(
 );
 assert.strictEqual(
   sandbox.window.EBookToAudio.bookPreviewUrl({ id: 7 }, "full"),
-  "/api/books/7/download/full.txt",
+  null,
 );
 const segmentMarkup = sandbox.window.EBookToAudio.renderSegmentLinks(3, {
   segments: [{ id: 5, segment_index: 0, download_url: "/api/chapters/3/audio/segments/5/download" }],
