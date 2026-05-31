@@ -1,10 +1,55 @@
+from io import BytesIO
 from pathlib import Path
 from zipfile import ZipFile
 
+from ebooklib import epub
 from fastapi.testclient import TestClient
 
 from ebook_to_audio.config import DEFAULT_MAX_UPLOAD_BYTES, PRESET_TTS_VOICES
 from ebook_to_audio.web import create_app
+
+
+def _make_structured_epub_bytes() -> bytes:
+    book = epub.EpubBook()
+    book.set_identifier("structured-web-sample")
+    book.set_title("Structured Web Sample")
+    book.set_language("zh")
+
+    first = epub.EpubHtml(title="", file_name="story-one.xhtml", lang="zh")
+    first.content = """
+        <html>
+            <body>
+                <p>第一个故事</p>
+                <p>本书来自 www.example.com</p>
+                <p>第一章  正文</p>
+            </body>
+        </html>
+    """
+
+    second = epub.EpubHtml(title="", file_name="story-two.xhtml", lang="zh")
+    second.content = """
+        <html>
+            <body>
+                <p>第二个故事</p>
+                <p>扫码关注公众号</p>
+                <p>第二章  正文</p>
+            </body>
+        </html>
+    """
+
+    book.add_item(first)
+    book.add_item(second)
+    book.toc = (
+        epub.Link("story-one.xhtml", "Story One", "story-one"),
+        epub.Link("story-two.xhtml", "Story Two", "story-two"),
+    )
+    book.add_item(epub.EpubNav())
+    book.add_item(epub.EpubNcx())
+    book.spine = [first, second]
+
+    output = BytesIO()
+    epub.write_epub(output, book)
+    return output.getvalue()
 
 
 def test_upload_clean_split_edit_and_download_chapter(tmp_path: Path):
@@ -143,6 +188,32 @@ def test_oversize_upload_returns_413(tmp_path: Path):
     )
 
     assert upload.status_code == 413
+
+
+def test_split_epub_uses_embedded_chapter_boundaries_after_cleaning(tmp_path: Path):
+    app = create_app(data_dir=tmp_path, config_path=tmp_path / "missing.yaml", autostart_jobs=False)
+    client = TestClient(app)
+    upload = client.post(
+        "/api/books",
+        files={"file": ("structured.epub", _make_structured_epub_bytes(), "application/epub+zip")},
+    )
+    book_id = upload.json()["id"]
+
+    clean = client.post(
+        f"/api/books/{book_id}/clean",
+        json={"operations": ["remove_watermarks", "normalize_spacing"]},
+    )
+    assert clean.status_code == 200
+
+    split = client.post(f"/api/books/{book_id}/split")
+    assert split.status_code == 200
+    chapters = client.get(f"/api/books/{book_id}/chapters").json()
+
+    assert [chapter["title"] for chapter in chapters] == ["Story One", "Story Two"]
+    first_text = client.get(f"/api/chapters/{chapters[0]['id']}/download.txt").text
+    second_text = client.get(f"/api/chapters/{chapters[1]['id']}/download.txt").text
+    assert first_text == "第一个故事\n第一章正文"
+    assert second_text == "第二个故事\n第二章正文"
 
 
 def test_default_upload_limit_accepts_books_over_one_megabyte(tmp_path: Path):
