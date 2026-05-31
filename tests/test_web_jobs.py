@@ -174,6 +174,58 @@ def test_resume_endpoint_runs_pending_translation_job(tmp_path: Path):
     assert "译文" in translation.text
 
 
+def test_resume_tts_without_api_key_keeps_job_paused(tmp_path: Path):
+    app = create_app(data_dir=tmp_path, config_path=tmp_path / "config.yaml", autostart_jobs=False)
+    client = TestClient(app)
+    chapter_id = _chapter_id(client)
+    chapter = app.state.repository.get_chapter(chapter_id)
+    job = app.state.repository.create_job(
+        chapter.book_id,
+        chapter.id,
+        JobKind.TTS,
+        1,
+        {
+            "provider": "mimo",
+            "voice": "Cherry",
+            "context": "",
+            "parallel_segments": 1,
+            "merge": False,
+            "source": "chapter",
+        },
+    )
+    app.state.repository.create_segments(job.id, chapter.id, ["一二三四五六"])
+    app.state.repository.request_pause(job.id)
+
+    response = client.post(f"/api/jobs/{job.id}/resume")
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "TTS API key is required to resume job"
+    unchanged = app.state.repository.get_job(job.id)
+    assert unchanged.status == JobStatus.PAUSED
+    assert unchanged.pause_requested is True
+
+
+def test_resume_non_paused_translation_job_does_not_run(tmp_path: Path):
+    app = create_app(data_dir=tmp_path, config_path=tmp_path / "config.yaml", autostart_jobs=False, use_fake_clients=True)
+    client = TestClient(app)
+    chapter_id = _chapter_id(client)
+    chapter = app.state.repository.get_chapter(chapter_id)
+    job = app.state.repository.create_job(
+        chapter.book_id,
+        chapter.id,
+        JobKind.TRANSLATE,
+        1,
+        {"provider": "default", "parallel_segments": 1},
+    )
+    app.state.repository.create_segments(job.id, chapter.id, ["一二三四五六"])
+
+    response = client.post(f"/api/jobs/{job.id}/resume")
+
+    assert response.status_code == 200
+    assert response.json()["status"] == JobStatus.PENDING
+    assert client.get(f"/api/chapters/{chapter_id}/translation/download.txt").status_code == 404
+
+
 def test_chapter_audio_zip_includes_segments_when_tts_merge_false(tmp_path: Path):
     app = create_app(data_dir=tmp_path, config_path=tmp_path / "config.yaml", autostart_jobs=False, use_fake_clients=True)
     client = TestClient(app)

@@ -282,23 +282,25 @@ def create_app(
         job = _get_job_or_404(repository, job_id)
         if job.status in _TERMINAL_JOB_STATUSES or job.stop_requested:
             return _job_dict(job)
-        repository.resume_job(job_id)
-        resumed = repository.get_job(job_id)
-        if resumed.status in _TERMINAL_JOB_STATUSES or resumed.stop_requested:
-            return _job_dict(resumed)
+        if job.status != JobStatus.PAUSED and not job.pause_requested:
+            return _job_dict(job)
 
-        if resumed.kind == JobKind.TRANSLATE:
+        if job.kind == JobKind.TRANSLATE:
             translation_config = _translation_config_for_job(
                 loaded_config.translation,
-                resumed,
+                job,
                 request.api_key,
                 use_fake_clients,
             )
             parallel_segments = _option_int(
-                resumed.options,
+                job.options,
                 "parallel_segments",
                 loaded_config.limits.max_parallel_translation_segments,
             )
+            repository.resume_job(job_id)
+            resumed = repository.get_job(job_id)
+            if resumed.status in _TERMINAL_JOB_STATUSES or resumed.stop_requested:
+                return _job_dict(resumed)
             if autostart_jobs:
                 background_tasks.add_task(
                     runner.run_translation_job,
@@ -315,19 +317,23 @@ def create_app(
                 )
             )
 
-        if resumed.kind == JobKind.TTS:
-            tts_request = _tts_request_for_job(resumed, request.api_key)
+        if job.kind == JobKind.TTS:
+            tts_request = _tts_request_for_job(job, request.api_key)
             tts_client = _tts_client_for_request(loaded_config, tts_request, use_fake_clients)
             if tts_client is None:
                 raise HTTPException(status_code=400, detail="TTS API key is required to resume job")
-            voice = str(resumed.options.get("voice") or loaded_config.tts.default_voice or "Cherry")
-            context = str(resumed.options.get("context") or "")
+            voice = str(job.options.get("voice") or loaded_config.tts.default_voice or "Cherry")
+            context = str(job.options.get("context") or "")
             parallel_segments = _option_int(
-                resumed.options,
+                job.options,
                 "parallel_segments",
                 loaded_config.limits.max_parallel_tts_segments,
             )
-            merge = bool(resumed.options.get("merge", True))
+            merge = bool(job.options.get("merge", True))
+            repository.resume_job(job_id)
+            resumed = repository.get_job(job_id)
+            if resumed.status in _TERMINAL_JOB_STATUSES or resumed.stop_requested:
+                return _job_dict(resumed)
             if autostart_jobs:
                 background_tasks.add_task(
                     runner.run_tts_job,
