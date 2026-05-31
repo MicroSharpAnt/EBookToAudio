@@ -377,4 +377,13 @@ textarea {
   button {
     white-space: normal;
   }
+
+  .upload-form {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .upload-form button {
+    justify-self: start;
+  }
 }
