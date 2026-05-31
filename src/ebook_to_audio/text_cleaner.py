@@ -32,8 +32,10 @@ _INVISIBLE_CHARACTERS = str.maketrans(
 )
 _SPACING_RE = re.compile(r"[ \t\f\v\u00a0\u3000]+")
 _EXCESS_BLANK_LINES_RE = re.compile(r"\n{3,}")
-_URL_OR_DOMAIN_RE = re.compile(
-    r"(https?://|www\.|[A-Za-z0-9-]+\.(?:com|net|org|cn|cc|vip|xyz|top|info)\b)",
+_STANDALONE_URL_OR_DOMAIN_RE = re.compile(
+    r"^[\s:：\-—_=*【】\[\]（）()《》<>|]*(?:https?://\S+|www\.\S+|"
+    r"[A-Za-z0-9-]+\.(?:com|net|org|cn|cc|vip|xyz|top|info)(?:/\S*)?)"
+    r"[\s:：\-—_=*【】\[\]（）()《》<>|]*$",
     re.IGNORECASE,
 )
 _WATERMARK_RE = re.compile(
@@ -48,14 +50,14 @@ def remove_watermarks(text: str) -> CleanResult:
     kept_lines = []
     removed_lines = 0
 
-    for line in text.splitlines():
+    for line in text.splitlines(keepends=True):
         stripped = line.strip()
-        if stripped and (_URL_OR_DOMAIN_RE.search(stripped) or _WATERMARK_RE.search(stripped)):
+        if stripped and (_WATERMARK_RE.search(stripped) or _STANDALONE_URL_OR_DOMAIN_RE.match(stripped)):
             removed_lines += 1
             continue
         kept_lines.append(line)
 
-    cleaned = "\n".join(kept_lines)
+    cleaned = text if removed_lines == 0 else "".join(kept_lines)
     return _result("remove_watermarks", cleaned, before_chars, removed_lines)
 
 
@@ -71,7 +73,7 @@ def normalize_spacing(text: str) -> CleanResult:
 
 def remove_repeated_noise_lines(text: str, min_repeats: int = 3, max_line_chars: int = 20) -> CleanResult:
     before_chars = len(text)
-    lines = text.splitlines()
+    lines = text.splitlines(keepends=True)
     counts = Counter(line.strip() for line in lines if _is_short_noise_candidate(line, max_line_chars))
     repeated_noise = {line for line, count in counts.items() if count >= min_repeats}
 
@@ -83,7 +85,7 @@ def remove_repeated_noise_lines(text: str, min_repeats: int = 3, max_line_chars:
             continue
         kept_lines.append(line)
 
-    cleaned = "\n".join(kept_lines)
+    cleaned = text if removed_lines == 0 else "".join(kept_lines)
     return _result("remove_repeated_noise_lines", cleaned, before_chars, removed_lines)
 
 
@@ -92,13 +94,13 @@ def remove_decorative_characters(text: str) -> CleanResult:
     kept_lines = []
     removed_lines = 0
 
-    for line in text.splitlines():
+    for line in text.splitlines(keepends=True):
         if _DECORATIVE_LINE_RE.match(line.strip()):
             removed_lines += 1
             continue
         kept_lines.append(line)
 
-    cleaned = "\n".join(kept_lines)
+    cleaned = text if removed_lines == 0 else "".join(kept_lines)
     return _result("remove_decorative_characters", cleaned, before_chars, removed_lines)
 
 
@@ -122,7 +124,7 @@ def _is_short_noise_candidate(line: str, max_line_chars: int) -> bool:
     if not stripped or len(stripped) > max_line_chars:
         return False
     return bool(
-        _URL_OR_DOMAIN_RE.search(stripped)
+        _STANDALONE_URL_OR_DOMAIN_RE.match(stripped)
         or _WATERMARK_RE.search(stripped)
         or _DECORATIVE_LINE_RE.match(stripped)
         or re.search(r"(广告|发布页|防盗|盗版|来源|书源|推广)", stripped, re.IGNORECASE)
