@@ -107,9 +107,13 @@ def load_config(path: Path) -> AppConfig:
         raw, "active_translation_provider", "active_translation_provider"
     )
     data_dir = Path(_get_text(raw, "data_dir", "data_dir", required=False) or "data")
+    if not data_dir.is_absolute():
+        data_dir = path.parent / data_dir
 
     translation_raw = _get_mapping(raw, "translation", "translation")
-    prompt = _build_prompt(_get_mapping(translation_raw, "prompt", "translation.prompt"))
+    prompt = _build_prompt(
+        _get_mapping(translation_raw, "prompt", "translation.prompt", required=False)
+    )
     providers = _build_providers(
         _get_mapping(translation_raw, "providers", "translation.providers")
     )
@@ -200,8 +204,9 @@ def _build_prompt(raw: dict[str, Any]) -> PromptConfig:
         system=_get_text(raw, "system", "translation.prompt.system", required=False)
         or PromptConfig.system,
         user_template=_get_text(
-            raw, "user_template", "translation.prompt.user_template"
-        ),
+            raw, "user_template", "translation.prompt.user_template", required=False
+        )
+        or PromptConfig.user_template,
     )
     if "{source_text}" not in prompt.user_template:
         raise ConfigError("translation.prompt.user_template must include {source_text}")
