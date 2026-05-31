@@ -216,6 +216,23 @@ def test_split_epub_uses_embedded_chapter_boundaries_after_cleaning(tmp_path: Pa
     assert second_text == "第二个故事\n第二章正文"
 
 
+def test_split_existing_epub_without_structured_cache_reparses_source(tmp_path: Path):
+    app = create_app(data_dir=tmp_path, config_path=tmp_path / "missing.yaml", autostart_jobs=False)
+    client = TestClient(app)
+    upload = client.post(
+        "/api/books",
+        files={"file": ("structured.epub", _make_structured_epub_bytes(), "application/epub+zip")},
+    )
+    book_id = upload.json()["id"]
+    (tmp_path / "books" / str(book_id) / "structured-chapters.json").unlink()
+
+    split = client.post(f"/api/books/{book_id}/split")
+    assert split.status_code == 200
+    chapters = client.get(f"/api/books/{book_id}/chapters").json()
+
+    assert [chapter["title"] for chapter in chapters] == ["Story One", "Story Two"]
+
+
 def test_default_upload_limit_accepts_books_over_one_megabyte(tmp_path: Path):
     app = create_app(data_dir=tmp_path, config_path=tmp_path / "missing.yaml", autostart_jobs=False)
     client = TestClient(app)

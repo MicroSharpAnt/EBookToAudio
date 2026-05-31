@@ -1100,7 +1100,30 @@ def _chapters_for_split(storage: LocalStorage, book: Book) -> list[SplitChapter]
     structured_chapters = _read_structured_chapters(storage, book.id)
     if len(structured_chapters) >= 2:
         return structured_chapters
+
+    source_chapters = _epub_source_chapters(storage, book)
+    if len(source_chapters) >= 2:
+        _write_structured_chapters(storage, book.id, source_chapters)
+        return source_chapters
+
     return split_into_chapters(_read_artifact_text(storage, book.cleaned_path))
+
+
+def _epub_source_chapters(storage: LocalStorage, book: Book) -> list[SplitChapter]:
+    if book.source_format != "epub":
+        return []
+
+    try:
+        source_bytes = storage.resolve_artifact(book.source_path).read_bytes()
+        parsed = parse_book_bytes(book.original_filename, source_bytes)
+    except (OSError, PathSafetyError, ParseError):
+        return []
+
+    return [
+        SplitChapter(title=chapter.title, text=chapter.text)
+        for chapter in parsed.initial_chapters
+        if chapter.text.strip()
+    ]
 
 
 def _clean_structured_chapters_if_present(storage: LocalStorage, book_id: int, operations: list[str]) -> None:
