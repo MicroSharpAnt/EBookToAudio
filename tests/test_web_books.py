@@ -233,6 +233,30 @@ def test_split_existing_epub_without_structured_cache_reparses_source(tmp_path: 
     assert [chapter["title"] for chapter in chapters] == ["Story One", "Story Two"]
 
 
+def test_clean_existing_epub_without_structured_cache_rebuilds_and_cleans_cache(tmp_path: Path):
+    app = create_app(data_dir=tmp_path, config_path=tmp_path / "missing.yaml", autostart_jobs=False)
+    client = TestClient(app)
+    upload = client.post(
+        "/api/books",
+        files={"file": ("structured.epub", _make_structured_epub_bytes(), "application/epub+zip")},
+    )
+    book_id = upload.json()["id"]
+    (tmp_path / "books" / str(book_id) / "structured-chapters.json").unlink()
+
+    clean = client.post(
+        f"/api/books/{book_id}/clean",
+        json={"operations": ["remove_watermarks", "normalize_spacing"]},
+    )
+    assert clean.status_code == 200
+    split = client.post(f"/api/books/{book_id}/split")
+    assert split.status_code == 200
+    chapters = client.get(f"/api/books/{book_id}/chapters").json()
+
+    assert [chapter["title"] for chapter in chapters] == ["Story One", "Story Two"]
+    first_text = client.get(f"/api/chapters/{chapters[0]['id']}/download.txt").text
+    assert first_text == "第一个故事\n第一章正文"
+
+
 def test_default_upload_limit_accepts_books_over_one_megabyte(tmp_path: Path):
     app = create_app(data_dir=tmp_path, config_path=tmp_path / "missing.yaml", autostart_jobs=False)
     client = TestClient(app)

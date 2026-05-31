@@ -242,7 +242,7 @@ def create_app(
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
         storage.write_text(book.cleaned_path, result.text)
-        _clean_structured_chapters_if_present(storage, book.id, request.operations)
+        _clean_structured_chapters_if_present(storage, book, request.operations)
         metadata = chapter_metadata(result.text)
         return {
             "book": _book_dict(book),
@@ -1126,8 +1126,10 @@ def _epub_source_chapters(storage: LocalStorage, book: Book) -> list[SplitChapte
     ]
 
 
-def _clean_structured_chapters_if_present(storage: LocalStorage, book_id: int, operations: list[str]) -> None:
-    chapters = _read_structured_chapters(storage, book_id)
+def _clean_structured_chapters_if_present(storage: LocalStorage, book: Book, operations: list[str]) -> None:
+    chapters = _read_structured_chapters(storage, book.id)
+    if not chapters:
+        chapters = _epub_source_chapters(storage, book)
     if not chapters:
         return
 
@@ -1135,7 +1137,7 @@ def _clean_structured_chapters_if_present(storage: LocalStorage, book_id: int, o
         SplitChapter(title=chapter.title, text=clean_text(chapter.text, operations).text)
         for chapter in chapters
     ]
-    _write_structured_chapters(storage, book_id, cleaned_chapters)
+    _write_structured_chapters(storage, book.id, cleaned_chapters)
 
 
 def _write_structured_chapters(storage: LocalStorage, book_id: int, chapters: Any) -> None:
