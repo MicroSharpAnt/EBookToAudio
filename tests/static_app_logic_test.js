@@ -118,3 +118,25 @@ assert.strictEqual(
   sandbox.window.EBookToAudio.buildTranslatePayload({ translationProvider: "default" }).parallel_segments,
   null,
 );
+assert.strictEqual(
+  sandbox.window.EBookToAudio.jobBelongsToCurrentBook({ id: 7, book_id: 2 }, { id: 2 }),
+  true,
+);
+assert.strictEqual(
+  sandbox.window.EBookToAudio.jobBelongsToCurrentBook({ id: 8, book_id: 1 }, { id: 2 }),
+  false,
+);
+assert.deepStrictEqual(
+  plain(sandbox.window.EBookToAudio.filterJobsForBook(
+    [
+      { id: 7, book_id: 2 },
+      { id: 8, book_id: 1 },
+      { id: 9, book_id: 2 },
+    ],
+    { id: 2 },
+  )),
+  [
+    { id: 7, book_id: 2 },
+    { id: 9, book_id: 2 },
+  ],
+);
