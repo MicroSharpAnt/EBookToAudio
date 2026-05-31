@@ -177,6 +177,11 @@ def create_app(
     def get_book(book_id: int) -> dict[str, Any]:
         return _book_dict(_get_book_or_404(repository, book_id))
 
+    @app.get("/api/books/{book_id}/jobs")
+    def list_book_jobs(book_id: int) -> list[dict[str, Any]]:
+        _get_book_or_404(repository, book_id)
+        return [_job_dict(job) for job in repository.list_jobs(book_id)]
+
     @app.get("/api/books/{book_id}/download.txt", response_class=PlainTextResponse)
     def download_book_text(book_id: int) -> PlainTextResponse:
         book = _get_book_or_404(repository, book_id)

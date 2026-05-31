@@ -33,6 +33,21 @@ def test_translate_endpoint_creates_translation_and_download(tmp_path: Path):
     assert "译文" in download.text
 
 
+def test_book_jobs_endpoint_lists_existing_jobs(tmp_path: Path):
+    app = create_app(data_dir=tmp_path, config_path=tmp_path / "config.yaml", autostart_jobs=False, use_fake_clients=True)
+    client = TestClient(app)
+    book_id, chapter_id = _book_and_chapter_id(client)
+
+    response = client.post(f"/api/chapters/{chapter_id}/translate", json={"parallel_segments": 1})
+    job_id = response.json()["id"]
+
+    jobs = client.get(f"/api/books/{book_id}/jobs")
+
+    assert jobs.status_code == 200
+    assert [job["id"] for job in jobs.json()] == [job_id, 1]
+    assert jobs.json()[0]["kind"] == JobKind.TRANSLATE
+
+
 def test_translate_endpoint_accepts_prompt_context_and_book_zip(tmp_path: Path):
     app = create_app(data_dir=tmp_path, config_path=tmp_path / "config.yaml", autostart_jobs=False, use_fake_clients=True)
     client = TestClient(app)
