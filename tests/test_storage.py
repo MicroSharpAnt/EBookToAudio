@@ -17,3 +17,16 @@ def test_chapter_metadata_counts_chars_and_paragraphs():
 
     assert metadata.char_count == len("第一段第二段第三行")
     assert metadata.paragraph_count == 2
+
+
+def test_storage_rejects_negative_artifact_indexes(tmp_path: Path):
+    storage = LocalStorage(tmp_path)
+
+    with pytest.raises(PathSafetyError):
+        storage.chapter_path(1, -1)
+
+    with pytest.raises(PathSafetyError):
+        storage.translation_path(1, 0, -1)
+
+    with pytest.raises(PathSafetyError):
+        storage.audio_path(1, 0, -1)

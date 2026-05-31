@@ -2,10 +2,20 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
 from .models import Book, Chapter, Job, JobKind, JobStatus, Segment, SegmentStatus
+
+
+TERMINAL_JOB_STATUSES = {
+    JobStatus.COMPLETED,
+    JobStatus.COMPLETED_WITH_ERRORS,
+    JobStatus.FAILED,
+    JobStatus.STOPPED,
+}
 
 
 class Repository:
@@ -14,7 +24,7 @@ class Repository:
 
     def initialize(self) -> None:
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        with self._connect() as conn:
+        with self._connection() as conn:
             conn.executescript(SCHEMA)
             conn.execute(
                 """
@@ -42,7 +52,7 @@ class Repository:
         filtered_path: str,
         cleaned_path: str,
     ) -> Book:
-        with self._connect() as conn:
+        with self._connection() as conn:
             cursor = conn.execute(
                 """
                 INSERT INTO books(title, source_format, original_filename, source_path, filtered_path, cleaned_path)
@@ -73,7 +83,7 @@ class Repository:
         char_count: int,
         paragraph_count: int,
     ) -> Chapter:
-        with self._connect() as conn:
+        with self._connection() as conn:
             cursor = conn.execute(
                 """
                 INSERT INTO chapters(book_id, chapter_index, title, text_path, char_count, paragraph_count)
@@ -84,7 +94,7 @@ class Repository:
             return self._get_chapter(int(cursor.lastrowid), conn)
 
     def list_chapters(self, book_id: int) -> list[Chapter]:
-        with self._connect() as conn:
+        with self._connection() as conn:
             rows = conn.execute(
                 "SELECT * FROM chapters WHERE book_id = ? ORDER BY chapter_index",
                 (book_id,),
@@ -99,7 +109,7 @@ class Repository:
         total_units: int,
         options: dict[str, Any],
     ) -> Job:
-        with self._connect() as conn:
+        with self._connection() as conn:
             cursor = conn.execute(
                 """
                 INSERT INTO jobs(book_id, chapter_id, kind, status, total_units, options)
@@ -122,7 +132,7 @@ class Repository:
         return self._job_from_row(row)
 
     def list_jobs(self, book_id: int | None = None) -> list[Job]:
-        with self._connect() as conn:
+        with self._connection() as conn:
             if book_id is None:
                 rows = conn.execute("SELECT * FROM jobs ORDER BY id DESC").fetchall()
             else:
@@ -130,14 +140,14 @@ class Repository:
         return [self._job_from_row(row) for row in rows]
 
     def update_job_status(self, job_id: int, status: JobStatus) -> None:
-        with self._connect() as conn:
+        with self._connection() as conn:
             conn.execute(
                 "UPDATE jobs SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
                 (status, job_id),
             )
 
     def request_pause(self, job_id: int) -> None:
-        with self._connect() as conn:
+        with self._connection() as conn:
             conn.execute(
                 """
                 UPDATE jobs
@@ -150,7 +160,12 @@ class Repository:
             )
 
     def resume_job(self, job_id: int) -> None:
-        with self._connect() as conn:
+        with self._connection() as conn:
+            job = self.get_job(job_id, conn=conn)
+            if job.status in TERMINAL_JOB_STATUSES or job.stop_requested:
+                return
+            if job.status != JobStatus.PAUSED and not job.pause_requested:
+                return
             conn.execute(
                 """
                 UPDATE jobs
@@ -161,21 +176,23 @@ class Repository:
                 """,
                 (JobStatus.RUNNING, job_id),
             )
+            self.refresh_job_progress(job_id, conn=conn)
 
     def request_stop(self, job_id: int) -> None:
-        with self._connect() as conn:
+        with self._connection() as conn:
             conn.execute(
                 """
                 UPDATE jobs
                 SET stop_requested = 1,
+                    status = ?,
                     updated_at = CURRENT_TIMESTAMP
                 WHERE id = ?
                 """,
-                (job_id,),
+                (JobStatus.STOPPED, job_id),
             )
 
     def create_segments(self, job_id: int, chapter_id: int, source_texts: list[str]) -> list[Segment]:
-        with self._connect() as conn:
+        with self._connection() as conn:
             segments: list[Segment] = []
             for segment_index, source_text in enumerate(source_texts):
                 cursor = conn.execute(
@@ -190,7 +207,7 @@ class Repository:
             return segments
 
     def list_segments(self, job_id: int) -> list[Segment]:
-        with self._connect() as conn:
+        with self._connection() as conn:
             rows = conn.execute(
                 "SELECT * FROM segments WHERE job_id = ? ORDER BY segment_index",
                 (job_id,),
@@ -201,6 +218,18 @@ class Repository:
         conn = self._connect()
         try:
             conn.execute("BEGIN IMMEDIATE")
+            job_row = conn.execute("SELECT * FROM jobs WHERE id = ?", (job_id,)).fetchone()
+            if job_row is None:
+                raise KeyError(f"job not found: {job_id}")
+
+            status = JobStatus(str(job_row["status"]))
+            if bool(job_row["pause_requested"]) or bool(job_row["stop_requested"]) or status == JobStatus.PAUSED:
+                conn.commit()
+                return None
+            if status in TERMINAL_JOB_STATUSES:
+                conn.commit()
+                return None
+
             row = conn.execute(
                 """
                 SELECT * FROM segments
@@ -240,7 +269,7 @@ class Repository:
             conn.close()
 
     def complete_segment(self, segment_id: int, result_text: str | None = None, output_path: str | None = None) -> None:
-        with self._connect() as conn:
+        with self._connection() as conn:
             conn.execute(
                 """
                 UPDATE segments
@@ -257,7 +286,7 @@ class Repository:
             self.refresh_job_progress(job_id, conn=conn)
 
     def fail_segment(self, segment_id: int, error_message: str) -> None:
-        with self._connect() as conn:
+        with self._connection() as conn:
             conn.execute(
                 """
                 UPDATE segments
@@ -272,7 +301,7 @@ class Repository:
             self.refresh_job_progress(job_id, conn=conn)
 
     def stop_running_segments(self, job_id: int) -> int:
-        with self._connect() as conn:
+        with self._connection() as conn:
             cursor = conn.execute(
                 """
                 UPDATE segments
@@ -319,13 +348,18 @@ class Repository:
             running = int(row["running_count"])
             pending = int(row["pending_count"])
             segment_count = int(row["segment_count"])
-            total_units = int(row["total_units"])
+            total_units = segment_count or int(row["total_units"])
             status = JobStatus(str(row["status"]))
 
             if bool(row["stop_requested"]):
                 status = JobStatus.STOPPED
             elif segment_count > 0 and completed + failed == total_units:
-                status = JobStatus.COMPLETED_WITH_ERRORS if failed else JobStatus.COMPLETED
+                if completed == 0 and failed > 0:
+                    status = JobStatus.FAILED
+                elif failed > 0:
+                    status = JobStatus.COMPLETED_WITH_ERRORS
+                else:
+                    status = JobStatus.COMPLETED
             elif running:
                 status = JobStatus.RUNNING
             elif pending and status not in {JobStatus.PAUSED, JobStatus.PENDING}:
@@ -335,12 +369,13 @@ class Repository:
                 """
                 UPDATE jobs
                 SET status = ?,
+                    total_units = ?,
                     completed_units = ?,
                     failed_units = ?,
                     updated_at = CURRENT_TIMESTAMP
                 WHERE id = ?
                 """,
-                (status, completed, failed, job_id),
+                (status, total_units, completed, failed, job_id),
             )
             return self.get_job(job_id, conn=conn)
         finally:
@@ -348,7 +383,7 @@ class Repository:
                 conn.close()
 
     def reset_running_to_pending(self) -> None:
-        with self._connect() as conn:
+        with self._connection() as conn:
             conn.execute(
                 "UPDATE segments SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE status = ?",
                 (SegmentStatus.PENDING, SegmentStatus.RUNNING),
@@ -363,6 +398,15 @@ class Repository:
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA foreign_keys = ON")
         return conn
+
+    @contextmanager
+    def _connection(self) -> Iterator[sqlite3.Connection]:
+        conn = self._connect()
+        try:
+            with conn:
+                yield conn
+        finally:
+            conn.close()
 
     def _get_chapter(self, chapter_id: int, conn: sqlite3.Connection) -> Chapter:
         row = conn.execute("SELECT * FROM chapters WHERE id = ?", (chapter_id,)).fetchone()
