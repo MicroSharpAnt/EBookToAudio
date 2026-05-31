@@ -330,6 +330,29 @@ def test_manual_merge_of_older_tts_job_does_not_replace_current_audio(tmp_path: 
     assert not any(f"/jobs/{first_job_id}/chapter.wav" in name for name in names)
 
 
+def test_tts_endpoint_clears_older_promotion_after_new_job_row_exists(tmp_path: Path, monkeypatch):
+    app = create_app(data_dir=tmp_path, config_path=tmp_path / "config.yaml", autostart_jobs=False, use_fake_clients=True)
+    client = TestClient(app)
+    chapter_id = _chapter_id(client)
+    chapter = app.state.repository.get_chapter(chapter_id)
+    older = app.state.repository.create_job(chapter.book_id, chapter.id, JobKind.TTS, total_units=1, options={})
+    original_create_job = app.state.repository.create_job
+
+    def create_job_after_older_promotion(*args, **kwargs):
+        app.state.repository.promote_chapter_audio_path_if_latest_tts_job(older.id, "old.wav")
+        return original_create_job(*args, **kwargs)
+
+    monkeypatch.setattr(app.state.repository, "create_job", create_job_after_older_promotion)
+
+    response = client.post(
+        f"/api/chapters/{chapter_id}/tts",
+        json={"provider": "mimo", "voice": "Cherry", "parallel_segments": 1, "merge": False},
+    )
+
+    assert response.status_code == 200
+    assert app.state.repository.get_chapter(chapter_id).audio_path is None
+
+
 def test_resume_paused_unsupported_job_kind_returns_cleanly(tmp_path: Path):
     app = create_app(data_dir=tmp_path, config_path=tmp_path / "config.yaml", autostart_jobs=False, use_fake_clients=True)
     client = TestClient(app)

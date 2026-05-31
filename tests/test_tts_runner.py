@@ -257,3 +257,37 @@ async def test_tts_runner_does_not_promote_older_automatic_merge(tmp_path: Path)
     assert newer_audio_path == f"books/1/audio/0000/jobs/{newer.id}/chapter.wav"
     assert repo.get_chapter(chapter.id).audio_path == newer_audio_path
     assert storage.resolve_artifact(f"books/1/audio/0000/jobs/{older.id}/chapter.wav").is_file()
+
+
+@pytest.mark.asyncio
+async def test_tts_runner_clears_older_promotion_after_new_job_row_exists(tmp_path: Path, monkeypatch):
+    repo = Repository(tmp_path / "app.db")
+    repo.initialize()
+    storage = LocalStorage(tmp_path)
+    chapter = _create_chapter(repo, storage, tmp_path, "一二三四")
+    runner = JobRunner(
+        repo,
+        storage,
+        tts_client=FakeTTSClient(),
+        audio_builder=FakeAudioBuilder(),
+        tts_max_chars=2,
+    )
+    older = repo.create_job(chapter.book_id, chapter.id, JobKind.TTS, total_units=1, options={})
+    original_create_job = repo.create_job
+
+    def create_job_after_older_promotion(*args, **kwargs):
+        repo.promote_chapter_audio_path_if_latest_tts_job(older.id, "old.wav")
+        return original_create_job(*args, **kwargs)
+
+    monkeypatch.setattr(repo, "create_job", create_job_after_older_promotion)
+
+    job = await runner.start_tts(
+        chapter.id,
+        voice="Cherry",
+        context="",
+        parallel_segments=1,
+        merge=False,
+    )
+
+    assert repo.get_job(job.id).status == JobStatus.COMPLETED
+    assert repo.get_chapter(chapter.id).audio_path is None

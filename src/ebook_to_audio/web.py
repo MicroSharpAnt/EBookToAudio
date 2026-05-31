@@ -721,7 +721,6 @@ def _create_tts_job(
     source_path = chapter.translation_path if source == "translation" else chapter.text_path
     if source_path is None:
         raise HTTPException(status_code=404, detail="translation not found")
-    repository.update_chapter_audio_path(chapter.id, None)
     source_segments = _chapter_segments(storage.read_text(source_path), segment_limit)
     job = repository.create_job(
         chapter.book_id,
@@ -739,6 +738,7 @@ def _create_tts_job(
             "model": model,
         },
     )
+    repository.update_chapter_audio_path(chapter.id, None)
     if not source_segments:
         repository.fail_job(job.id, "chapter has no text to synthesize")
         return repository.get_job(job.id)
