@@ -3,7 +3,7 @@ from zipfile import ZipFile
 
 from fastapi.testclient import TestClient
 
-from ebook_to_audio.models import JobStatus
+from ebook_to_audio.models import JobKind, JobStatus
 from ebook_to_audio.web import create_app
 
 
@@ -76,6 +76,23 @@ def test_tts_endpoint_creates_audio_and_controls_are_idempotent(tmp_path: Path):
     assert audio.status_code == 200
 
 
+def test_tts_endpoint_uses_request_bound_client_without_mutating_runner(tmp_path: Path):
+    app = create_app(data_dir=tmp_path, config_path=tmp_path / "config.yaml", autostart_jobs=False, use_fake_clients=True)
+    client = TestClient(app)
+    chapter_id = _chapter_id(client)
+    sentinel_client = object()
+    app.state.runner.tts_client = sentinel_client
+
+    response = client.post(
+        f"/api/chapters/{chapter_id}/tts",
+        json={"provider": "mimo", "voice": "Cherry", "parallel_segments": 1, "merge": True},
+    )
+
+    assert response.status_code == 200
+    assert app.state.runner.tts_client is sentinel_client
+    assert client.get(f"/api/chapters/{chapter_id}/audio/download").status_code == 200
+
+
 def test_tts_endpoint_exposes_segment_audio_and_book_zip(tmp_path: Path):
     app = create_app(data_dir=tmp_path, config_path=tmp_path / "config.yaml", autostart_jobs=False, use_fake_clients=True)
     client = TestClient(app)
@@ -131,3 +148,47 @@ def test_tts_endpoint_rejects_unsupported_provider_before_creating_job(tmp_path:
     assert response.status_code == 400
     assert response.json()["detail"] == "unsupported TTS provider: unknown"
     assert client.get(f"/api/chapters/{chapter_id}/audio").json()["segments"] == []
+
+
+def test_resume_endpoint_runs_pending_translation_job(tmp_path: Path):
+    app = create_app(data_dir=tmp_path, config_path=tmp_path / "config.yaml", autostart_jobs=False, use_fake_clients=True)
+    client = TestClient(app)
+    chapter_id = _chapter_id(client)
+    chapter = app.state.repository.get_chapter(chapter_id)
+    job = app.state.repository.create_job(
+        chapter.book_id,
+        chapter.id,
+        JobKind.TRANSLATE,
+        1,
+        {"provider": "default", "parallel_segments": 1, "prompt": "翻译", "context": "简洁"},
+    )
+    app.state.repository.create_segments(job.id, chapter.id, ["一二三四五六"])
+    app.state.repository.request_pause(job.id)
+
+    response = client.post(f"/api/jobs/{job.id}/resume")
+
+    assert response.status_code == 200
+    assert response.json()["status"] == JobStatus.COMPLETED
+    translation = client.get(f"/api/chapters/{chapter_id}/translation/download.txt")
+    assert translation.status_code == 200
+    assert "译文" in translation.text
+
+
+def test_chapter_audio_zip_includes_segments_when_tts_merge_false(tmp_path: Path):
+    app = create_app(data_dir=tmp_path, config_path=tmp_path / "config.yaml", autostart_jobs=False, use_fake_clients=True)
+    client = TestClient(app)
+    chapter_id = _chapter_id(client)
+
+    response = client.post(
+        f"/api/chapters/{chapter_id}/tts",
+        json={"provider": "mimo", "voice": "Cherry", "parallel_segments": 1, "merge": False},
+    )
+
+    assert response.status_code == 200
+    download = client.get(f"/api/chapters/{chapter_id}/audio/download.zip")
+    assert download.status_code == 200
+    zip_path = tmp_path / "chapter-segment-audio.zip"
+    zip_path.write_bytes(download.content)
+    with ZipFile(zip_path) as archive:
+        names = archive.namelist()
+        assert any(name.endswith("-0000.wav") for name in names)
