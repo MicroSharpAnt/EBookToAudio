@@ -27,6 +27,7 @@ class Repository:
         with self._connection() as conn:
             conn.executescript(SCHEMA)
             _ensure_chapter_translation_path(conn)
+            _ensure_chapter_audio_path(conn)
             _ensure_job_error_message(conn)
             conn.execute(
                 """
@@ -116,6 +117,17 @@ class Repository:
                 WHERE id = ?
                 """,
                 (translation_path, chapter_id),
+            )
+
+    def update_chapter_audio_path(self, chapter_id: int, audio_path: str) -> None:
+        with self._connection() as conn:
+            conn.execute(
+                """
+                UPDATE chapters
+                SET audio_path = ?
+                WHERE id = ?
+                """,
+                (audio_path, chapter_id),
             )
 
     def create_job(
@@ -494,6 +506,7 @@ class Repository:
             char_count=int(row["char_count"]),
             paragraph_count=int(row["paragraph_count"]),
             translation_path=row["translation_path"],
+            audio_path=row["audio_path"],
             created_at=str(row["created_at"]),
         )
 
@@ -552,6 +565,7 @@ CREATE TABLE IF NOT EXISTS chapters (
     char_count INTEGER NOT NULL,
     paragraph_count INTEGER NOT NULL,
     translation_path TEXT,
+    audio_path TEXT,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(book_id, chapter_index)
 );
@@ -601,6 +615,15 @@ def _ensure_chapter_translation_path(conn: sqlite3.Connection) -> None:
     }
     if "translation_path" not in columns:
         conn.execute("ALTER TABLE chapters ADD COLUMN translation_path TEXT")
+
+
+def _ensure_chapter_audio_path(conn: sqlite3.Connection) -> None:
+    columns = {
+        str(row["name"])
+        for row in conn.execute("PRAGMA table_info(chapters)").fetchall()
+    }
+    if "audio_path" not in columns:
+        conn.execute("ALTER TABLE chapters ADD COLUMN audio_path TEXT")
 
 
 def _ensure_job_error_message(conn: sqlite3.Connection) -> None:
