@@ -77,6 +77,31 @@ class Repository:
             raise KeyError(f"book not found: {book_id}")
         return self._book_from_row(row)
 
+    def list_books(self) -> list[Book]:
+        with self._connection() as conn:
+            rows = conn.execute("SELECT * FROM books ORDER BY id DESC").fetchall()
+        return [self._book_from_row(row) for row in rows]
+
+    def update_book_paths(
+        self,
+        book_id: int,
+        source_path: str,
+        filtered_path: str,
+        cleaned_path: str,
+    ) -> Book:
+        with self._connection() as conn:
+            conn.execute(
+                """
+                UPDATE books
+                SET source_path = ?,
+                    filtered_path = ?,
+                    cleaned_path = ?
+                WHERE id = ?
+                """,
+                (source_path, filtered_path, cleaned_path, book_id),
+            )
+            return self.get_book(book_id, conn=conn)
+
     def create_chapter(
         self,
         book_id: int,
@@ -107,6 +132,32 @@ class Repository:
                 (book_id,),
             ).fetchall()
         return [self._chapter_from_row(row) for row in rows]
+
+    def delete_chapters_for_book(self, book_id: int) -> None:
+        with self._connection() as conn:
+            conn.execute("DELETE FROM chapters WHERE book_id = ?", (book_id,))
+
+    def update_chapter(
+        self,
+        chapter_id: int,
+        title: str,
+        text_path: str,
+        char_count: int,
+        paragraph_count: int,
+    ) -> Chapter:
+        with self._connection() as conn:
+            conn.execute(
+                """
+                UPDATE chapters
+                SET title = ?,
+                    text_path = ?,
+                    char_count = ?,
+                    paragraph_count = ?
+                WHERE id = ?
+                """,
+                (title, text_path, char_count, paragraph_count, chapter_id),
+            )
+            return self._get_chapter(chapter_id, conn)
 
     def update_chapter_translation_path(self, chapter_id: int, translation_path: str) -> None:
         with self._connection() as conn:
@@ -174,6 +225,23 @@ class Repository:
                 "UPDATE jobs SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
                 (status, job_id),
             )
+
+    def complete_job(self, job_id: int, completed_units: int | None = None) -> Job:
+        with self._connection() as conn:
+            job = self.get_job(job_id, conn=conn)
+            units = job.total_units if completed_units is None else completed_units
+            conn.execute(
+                """
+                UPDATE jobs
+                SET status = ?,
+                    completed_units = ?,
+                    failed_units = 0,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+                """,
+                (JobStatus.COMPLETED, units, job_id),
+            )
+            return self.get_job(job_id, conn=conn)
 
     def fail_job(self, job_id: int, error_message: str) -> None:
         with self._connection() as conn:
