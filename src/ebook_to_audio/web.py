@@ -1003,6 +1003,16 @@ class _FakeLLMClient:
         timeout_seconds: int,
         max_retries: int,
     ) -> str:
+        if "translated_title" in user_prompt and "summary" in user_prompt:
+            title_match = re.search(r"原章节名：([^\n]+)", user_prompt)
+            title = title_match.group(1).strip() if title_match else "章节"
+            return json.dumps(
+                {
+                    "translated_title": f"{title}（中文）",
+                    "summary": "本章的中文简介。",
+                },
+                ensure_ascii=False,
+            )
         return f"译文：{user_prompt}"
 
 

@@ -34,6 +34,22 @@ def test_translate_endpoint_creates_translation_and_download(tmp_path: Path):
     assert "译文" in download.text
 
 
+def test_translate_endpoint_updates_chapter_title_and_summary(tmp_path: Path):
+    app = create_app(data_dir=tmp_path, config_path=tmp_path / "config.yaml", autostart_jobs=False, use_fake_clients=True)
+    client = TestClient(app)
+    book_id, chapter_id = _book_and_chapter_id(client)
+    original_title = client.get(f"/api/books/{book_id}/chapters").json()[0]["title"]
+
+    response = client.post(f"/api/chapters/{chapter_id}/translate", json={"parallel_segments": 1})
+
+    assert response.status_code == 200
+    assert response.json()["status"] == JobStatus.COMPLETED
+    chapters = client.get(f"/api/books/{book_id}/chapters").json()
+    translated = next(chapter for chapter in chapters if chapter["id"] == chapter_id)
+    assert translated["translated_title"] == f"{original_title}（中文）"
+    assert translated["summary"] == "本章的中文简介。"
+
+
 def test_book_jobs_endpoint_lists_existing_jobs(tmp_path: Path):
     app = create_app(data_dir=tmp_path, config_path=tmp_path / "config.yaml", autostart_jobs=False, use_fake_clients=True)
     client = TestClient(app)

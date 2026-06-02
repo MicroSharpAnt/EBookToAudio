@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
@@ -8,7 +9,7 @@ from typing import Any
 from .audio_builder import AudioBuilder
 from .config import TranslationConfig
 from .llm_client import LLMClient
-from .models import Job, JobKind, JobStatus, SegmentStatus
+from .models import Chapter, Job, JobKind, JobStatus, SegmentStatus
 from .repository import Repository
 from .storage import LocalStorage
 from .text_segmenter import split_text
@@ -84,7 +85,7 @@ class JobRunner:
         await asyncio.gather(
             *(self._translate_pending_segments(job_id, config) for _ in range(worker_count))
         )
-        self._write_ordered_translation(job_id)
+        await self._write_ordered_translation(job_id, config)
         return self.repository.refresh_job_progress(job_id)
 
     def _ensure_segments(self, job: Job, config: TranslationConfig) -> None:
@@ -154,7 +155,7 @@ class JobRunner:
             except Exception as exc:
                 self.repository.fail_segment(segment.id, str(exc))
 
-    def _write_ordered_translation(self, job_id: int) -> None:
+    async def _write_ordered_translation(self, job_id: int, config: TranslationConfig) -> None:
         job = self.repository.refresh_job_progress(job_id)
         if job.chapter_id is None or job.status in {JobStatus.PAUSED, JobStatus.STOPPED}:
             return
@@ -169,17 +170,50 @@ class JobRunner:
             return
 
         chapter = self.repository.get_chapter(job.chapter_id)
+        translated_text = "\n\n".join(segment.result_text or "" for segment in segments)
         output_path = (
             f"books/{chapter.book_id}/translations/{chapter.chapter_index:04d}.txt"
         )
         try:
-            self.storage.write_text(
+            self.storage.write_text(output_path, translated_text)
+            promoted = self.repository.promote_chapter_translation_path_if_current_job(
+                job_id,
                 output_path,
-                "\n\n".join(segment.result_text or "" for segment in segments),
             )
-            self.repository.promote_chapter_translation_path_if_current_job(job_id, output_path)
         except Exception as exc:
             self.repository.fail_job(job_id, str(exc))
+            return
+        if not promoted:
+            return
+        self.repository.promote_chapter_translation_metadata_if_current_job(job_id, None, None)
+        await self._write_translation_metadata(job_id, config, chapter, translated_text)
+
+    async def _write_translation_metadata(
+        self,
+        job_id: int,
+        config: TranslationConfig,
+        chapter: Chapter,
+        translated_text: str,
+    ) -> None:
+        try:
+            source_text = self.storage.read_text(chapter.text_path)
+            raw_metadata = await self.llm_client.translate(
+                config.active,
+                _TRANSLATION_METADATA_SYSTEM_PROMPT,
+                _translation_metadata_prompt(chapter.title, source_text, translated_text),
+                config.request_timeout_seconds,
+                config.max_retries,
+            )
+            translated_title, summary = _parse_translation_metadata(raw_metadata)
+            if translated_title is None and summary is None:
+                return
+            self.repository.promote_chapter_translation_metadata_if_current_job(
+                job_id,
+                translated_title,
+                summary,
+            )
+        except Exception:
+            return
 
     async def start_tts(
         self,
@@ -374,6 +408,58 @@ def _with_api_key_override(
     providers = dict(config.providers)
     providers[config.active_provider_name] = active
     return replace(config, providers=providers)
+
+
+_TRANSLATION_METADATA_SYSTEM_PROMPT = (
+    "你是专业中文文学编辑。请只输出 JSON，不要输出 Markdown 或额外说明。"
+)
+_METADATA_SOURCE_LIMIT = 1800
+_METADATA_TRANSLATION_LIMIT = 2600
+
+
+def _translation_metadata_prompt(
+    chapter_title: str,
+    source_text: str,
+    translated_text: str,
+) -> str:
+    return (
+        "请基于以下章节内容生成中文章节名和章节简介。\n"
+        "输出 JSON 对象，字段必须为 translated_title 和 summary。\n"
+        "translated_title：中文章节名，简洁自然。\n"
+        "summary：中文简介，用一到两句话概括当前章节，不要超过 80 个汉字。\n\n"
+        f"原章节名：{chapter_title}\n\n"
+        f"原文节选：\n{source_text[:_METADATA_SOURCE_LIMIT]}\n\n"
+        f"译文节选：\n{translated_text[:_METADATA_TRANSLATION_LIMIT]}"
+    )
+
+
+def _parse_translation_metadata(raw_metadata: str) -> tuple[str | None, str | None]:
+    text = raw_metadata.strip()
+    if text.startswith("```"):
+        lines = text.splitlines()
+        if lines and lines[0].startswith("```"):
+            lines = lines[1:]
+        if lines and lines[-1].startswith("```"):
+            lines = lines[:-1]
+        text = "\n".join(lines).strip()
+    start = text.find("{")
+    end = text.rfind("}")
+    if start != -1 and end != -1 and start < end:
+        text = text[start:end + 1]
+    data = json.loads(text)
+    if not isinstance(data, dict):
+        return None, None
+    return (
+        _clean_metadata_field(data.get("translated_title")),
+        _clean_metadata_field(data.get("summary")),
+    )
+
+
+def _clean_metadata_field(value: object) -> str | None:
+    if not isinstance(value, str):
+        return None
+    cleaned = value.strip()
+    return cleaned or None
 
 
 _TERMINAL_STATUSES = {

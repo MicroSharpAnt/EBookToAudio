@@ -368,6 +368,28 @@ textarea {
   margin-top: 4px;
 }
 
+.chapter-brief {
+  display: grid;
+  gap: 4px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--panel-subtle);
+  padding: 8px 10px;
+}
+
+.chapter-original-title {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.chapter-brief-text {
+  line-height: 1.55;
+}
+
+.chapter-brief-text.is-empty {
+  color: var(--muted);
+}
+
 .status-strip {
   display: flex;
   flex-wrap: wrap;

@@ -57,6 +57,8 @@ class Chapter:
     char_count: int
     paragraph_count: int
     translation_path: str | None = None
+    translated_title: str | None = None
+    summary: str | None = None
     audio_path: str | None = None
     content_revision: int = 0
     created_at: str = ""
