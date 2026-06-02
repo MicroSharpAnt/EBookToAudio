@@ -1009,7 +1009,11 @@ class _FakeLLMClient:
             return json.dumps(
                 {
                     "translated_title": f"{title}（中文）",
-                    "summary": "本章的中文简介。",
+                    "summary": (
+                        "本章以更完整的篇幅概括主要事件、人物关系和情绪变化，"
+                        "说明章节在全书中的承接作用。读者可以先通过这段简介"
+                        "把握重点，再进入正文或译文细读。"
+                    ),
                 },
                 ensure_ascii=False,
             )

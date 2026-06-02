@@ -185,6 +185,7 @@ class JobRunner:
             return
         if not promoted:
             return
+        self.repository.update_job_status(job_id, JobStatus.RUNNING)
         self.repository.promote_chapter_translation_metadata_if_current_job(job_id, None, None)
         await self._write_translation_metadata(job_id, config, chapter, translated_text)
 
@@ -426,7 +427,8 @@ def _translation_metadata_prompt(
         "请基于以下章节内容生成中文章节名和章节简介。\n"
         "输出 JSON 对象，字段必须为 translated_title 和 summary。\n"
         "translated_title：中文章节名，简洁自然。\n"
-        "summary：中文简介，用一到两句话概括当前章节，不要超过 80 个汉字。\n\n"
+        "summary：中文简介，用二到四句话概括当前章节，约 120 到 220 个汉字。"
+        "请覆盖主要情节、关键人物或信息、情绪变化或章节作用，避免泛泛而谈。\n\n"
         f"原章节名：{chapter_title}\n\n"
         f"原文节选：\n{source_text[:_METADATA_SOURCE_LIMIT]}\n\n"
         f"译文节选：\n{translated_text[:_METADATA_TRANSLATION_LIMIT]}"
