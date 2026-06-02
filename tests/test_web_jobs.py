@@ -47,7 +47,8 @@ def test_translate_endpoint_updates_chapter_title_and_summary(tmp_path: Path):
     chapters = client.get(f"/api/books/{book_id}/chapters").json()
     translated = next(chapter for chapter in chapters if chapter["id"] == chapter_id)
     assert translated["translated_title"] == f"{original_title}（中文）"
-    assert translated["summary"] == "本章的中文简介。"
+    assert "更完整的篇幅" in translated["summary"]
+    assert "进入正文或译文细读" in translated["summary"]
 
 
 def test_book_jobs_endpoint_lists_existing_jobs(tmp_path: Path):

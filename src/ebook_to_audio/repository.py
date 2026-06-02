@@ -634,7 +634,10 @@ class Repository:
                 """,
                 (status, total_units, completed, failed, job_id),
             )
-            return self.get_job(job_id, conn=conn)
+            refreshed = self.get_job(job_id, conn=conn)
+            if close_conn:
+                conn.commit()
+            return refreshed
         finally:
             if close_conn:
                 conn.close()

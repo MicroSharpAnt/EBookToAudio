@@ -4,7 +4,7 @@ import asyncio
 import pytest
 
 from ebook_to_audio.config import PromptConfig, ProviderConfig, TranslationConfig
-from ebook_to_audio.job_runner import JobRunner
+from ebook_to_audio.job_runner import JobRunner, _translation_metadata_prompt
 from ebook_to_audio.models import JobKind, JobStatus, SegmentStatus
 from ebook_to_audio.repository import Repository
 from ebook_to_audio.storage import LocalStorage
@@ -66,6 +66,32 @@ class BlockingLLMClient(FakeLLMClient):
         return "译文:" + user_prompt.split("Source:\n", 1)[1]
 
 
+class BlockingMetadataLLMClient(FakeLLMClient):
+    def __init__(self):
+        super().__init__()
+        self.metadata_started = asyncio.Event()
+        self.release_metadata = asyncio.Event()
+
+    async def translate(
+        self,
+        provider,
+        system_prompt,
+        user_prompt,
+        timeout_seconds,
+        max_retries,
+    ):
+        self.calls.append(user_prompt)
+        if "translated_title" in user_prompt and "summary" in user_prompt:
+            self.metadata_started.set()
+            await self.release_metadata.wait()
+            return (
+                '{"translated_title": "第一章（中文）", '
+                '"summary": "本章用更完整的篇幅概括主要事件、人物关系和情绪变化，'
+                '帮助读者在阅读正文前快速把握章节重点。"}'
+            )
+        return "译文:" + user_prompt.split("Source:\n", 1)[1]
+
+
 class FailingSegmentStorage(LocalStorage):
     def write_text(self, relative_path: str, text: str) -> Path:
         if relative_path.endswith("translations/0000-0000.txt"):
@@ -116,6 +142,14 @@ def _create_chapter(
         len(text),
         1,
     )
+
+
+def test_translation_metadata_prompt_requests_richer_summary():
+    prompt = _translation_metadata_prompt("The Gift", "source text", "translated text")
+
+    assert "二到四句话" in prompt
+    assert "120 到 220" in prompt
+    assert "主要情节" in prompt
 
 
 @pytest.mark.asyncio
@@ -185,6 +219,45 @@ async def test_translation_runner_clears_stale_metadata_when_metadata_generation
     assert translated_chapter.translation_path is not None
     assert translated_chapter.translated_title is None
     assert translated_chapter.summary is None
+
+
+@pytest.mark.asyncio
+async def test_translation_job_stays_running_until_metadata_is_written(tmp_path: Path):
+    repo = Repository(tmp_path / "app.db")
+    repo.initialize()
+    storage = LocalStorage(tmp_path)
+    chapter = _create_chapter(repo, storage, "一二三四", tmp_path)
+    job = repo.create_job(
+        chapter.book_id,
+        chapter.id,
+        JobKind.TRANSLATE,
+        1,
+        {"chapter_revision": chapter.content_revision},
+    )
+    repo.create_segments(job.id, chapter.id, ["一二三四"])
+    llm = BlockingMetadataLLMClient()
+    runner = JobRunner(repo, storage, llm_client=llm)
+
+    task = asyncio.create_task(
+        runner.run_translation_job(
+            job.id,
+            _translation_config(segment_limit=4),
+            parallel_segments=1,
+        )
+    )
+    await asyncio.wait_for(llm.metadata_started.wait(), 5)
+
+    assert repo.get_job(job.id).status == JobStatus.RUNNING
+    assert repo.get_chapter(chapter.id).translated_title is None
+
+    llm.release_metadata.set()
+    await task
+
+    completed = repo.get_job(job.id)
+    translated_chapter = repo.get_chapter(chapter.id)
+    assert completed.status == JobStatus.COMPLETED
+    assert translated_chapter.translated_title == "第一章（中文）"
+    assert "章节重点" in (translated_chapter.summary or "")
 
 
 @pytest.mark.asyncio
