@@ -154,6 +154,40 @@ async def test_translation_runner_writes_ordered_translation(tmp_path: Path):
 
 
 @pytest.mark.asyncio
+async def test_translation_runner_clears_stale_metadata_when_metadata_generation_fails(tmp_path: Path):
+    repo = Repository(tmp_path / "app.db")
+    repo.initialize()
+    storage = LocalStorage(tmp_path)
+    chapter = _create_chapter(repo, storage, "一二三四", tmp_path)
+    old_job = repo.create_job(
+        chapter.book_id,
+        chapter.id,
+        JobKind.TRANSLATE,
+        1,
+        {"chapter_revision": chapter.content_revision},
+    )
+    assert repo.promote_chapter_translation_metadata_if_current_job(
+        old_job.id,
+        "旧译名",
+        "旧简介",
+    ) is True
+    runner = JobRunner(repo, storage, llm_client=FakeLLMClient())
+
+    job = await runner.start_translation(
+        chapter.id,
+        _translation_config(segment_limit=4),
+        parallel_segments=1,
+    )
+
+    completed = repo.get_job(job.id)
+    translated_chapter = repo.get_chapter(chapter.id)
+    assert completed.status == JobStatus.COMPLETED
+    assert translated_chapter.translation_path is not None
+    assert translated_chapter.translated_title is None
+    assert translated_chapter.summary is None
+
+
+@pytest.mark.asyncio
 async def test_translation_runner_can_pause_and_resume(tmp_path: Path):
     repo = Repository(tmp_path / "app.db")
     repo.initialize()

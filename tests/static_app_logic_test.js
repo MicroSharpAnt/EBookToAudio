@@ -35,6 +35,31 @@ assert.strictEqual(
 );
 assert.strictEqual(sandbox.window.EBookToAudio.statusLabel("completed_with_errors"), "部分完成");
 assert.strictEqual(sandbox.window.EBookToAudio.wordCountLabel({ char_count: 1200 }), "约 600 词");
+assert.strictEqual(
+  sandbox.window.EBookToAudio.chapterDisplayTitle({
+    chapter_index: 0,
+    title: "The Gift",
+    translated_title: "麦琪的礼物",
+  }),
+  "麦琪的礼物",
+);
+assert.strictEqual(
+  sandbox.window.EBookToAudio.chapterDisplayTitle({
+    chapter_index: 0,
+    title: "The Gift",
+    translated_title: "",
+  }),
+  "The Gift",
+);
+const chapterBriefMarkup = sandbox.window.EBookToAudio.renderChapterBrief({
+  title: "The Gift",
+  translated_title: "麦琪的礼物",
+  summary: "本章讲述一对夫妻互赠礼物。",
+});
+assert(chapterBriefMarkup.includes("原章节名"));
+assert(chapterBriefMarkup.includes("The Gift"));
+assert(chapterBriefMarkup.includes("本章讲述一对夫妻互赠礼物。"));
+assert.strictEqual(sandbox.window.EBookToAudio.renderChapterBrief({ title: "第一章" }), "");
 function plain(value) {
   return JSON.parse(JSON.stringify(value));
 }

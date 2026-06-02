@@ -36,6 +36,10 @@
     return Number.isFinite(number) ? number.toLocaleString("en-US") : "0";
   }
 
+  function stringValue(value) {
+    return typeof value === "string" ? value.trim() : "";
+  }
+
   function progressPercent(job) {
     const total = Number(job && job.total_units);
     const completed = Number(job && job.completed_units);
@@ -444,7 +448,7 @@
     card.innerHTML = `
       <summary class="chapter-summary">
         <div>
-          <h3 class="chapter-title">${escapeHtml(chapter.title || `第 ${chapter.chapter_index + 1} 章`)}</h3>
+          <h3 class="chapter-title">${escapeHtml(chapterDisplayTitle(chapter))}</h3>
           <p class="chapter-subtitle">
             ${formatCount(chapter.char_count)} 字符 · ${wordCountLabel(chapter)} · ${formatCount(chapter.paragraph_count)} 段落
           </p>
@@ -456,34 +460,68 @@
         <span class="chapter-toggle-label" aria-hidden="true"></span>
       </summary>
       <div class="chapter-body">
+        ${renderChapterBrief(chapter)}
         <div class="chapter-actions">
           <button type="button" data-view="${chapter.id}">查看</button>
           <button type="button" data-translate="${chapter.id}" class="primary">将文章翻译为中文</button>
           <button type="button" data-tts="${chapter.id}">TTS</button>
           ${ttsJob ? `<button type="button" data-merge="${ttsJob.id}">合并音频</button>` : ""}
         </div>
-      </div>
-      <div class="artifact-links">
-        <a class="button-link" href="/api/chapters/${chapter.id}/download.txt">章节 TXT</a>
-        <a class="button-link" href="/api/chapters/${chapter.id}/download.zip">章节 ZIP</a>
-        ${
-          chapter.translation_path
-            ? `<a class="button-link" href="/api/chapters/${chapter.id}/translation/download.txt">译文 TXT</a>
-               <a class="button-link" href="/api/chapters/${chapter.id}/translation/download.zip">译文 ZIP</a>`
-            : ""
-        }
-        ${
-          chapter.audio_path
-            ? `<a class="button-link" href="/api/chapters/${chapter.id}/audio/download">合并 WAV</a>`
-            : ""
-        }
-        ${hasAudio ? `<a class="button-link" href="/api/chapters/${chapter.id}/audio/download.zip">音频 ZIP</a>` : ""}
-      </div>
-      ${renderChapterAudioPanel(chapter, audio)}
-      <div class="job-slot chapter-job-slot">${chapterJobsMarkup([translationJob, ttsJob])}</div>
+        <div class="artifact-links">
+          <a class="button-link" href="/api/chapters/${chapter.id}/download.txt">章节 TXT</a>
+          <a class="button-link" href="/api/chapters/${chapter.id}/download.zip">章节 ZIP</a>
+          ${
+            chapter.translation_path
+              ? `<a class="button-link" href="/api/chapters/${chapter.id}/translation/download.txt">译文 TXT</a>
+                 <a class="button-link" href="/api/chapters/${chapter.id}/translation/download.zip">译文 ZIP</a>`
+              : ""
+          }
+          ${
+            chapter.audio_path
+              ? `<a class="button-link" href="/api/chapters/${chapter.id}/audio/download">合并 WAV</a>`
+              : ""
+          }
+          ${hasAudio ? `<a class="button-link" href="/api/chapters/${chapter.id}/audio/download.zip">音频 ZIP</a>` : ""}
+        </div>
+        ${renderChapterAudioPanel(chapter, audio)}
+        <div class="job-slot chapter-job-slot">${chapterJobsMarkup([translationJob, ttsJob])}</div>
       </div>
     `;
     return card;
+  }
+
+  function chapterDisplayTitle(chapter) {
+    const translatedTitle = stringValue(chapter && chapter.translated_title);
+    if (translatedTitle) {
+      return translatedTitle;
+    }
+    return chapterFallbackTitle(chapter);
+  }
+
+  function chapterFallbackTitle(chapter) {
+    const title = stringValue(chapter && chapter.title);
+    if (title) {
+      return title;
+    }
+    const index = Number(chapter && chapter.chapter_index);
+    return Number.isFinite(index) ? `第 ${index + 1} 章` : "未命名章节";
+  }
+
+  function renderChapterBrief(chapter) {
+    const translatedTitle = stringValue(chapter && chapter.translated_title);
+    const originalTitle = chapterFallbackTitle(chapter);
+    const summary = stringValue(chapter && chapter.summary);
+    if (!translatedTitle && !summary) {
+      return "";
+    }
+    const originalMarkup =
+      translatedTitle && originalTitle && translatedTitle !== originalTitle
+        ? `<p class="chapter-original-title">原章节名：${escapeHtml(originalTitle)}</p>`
+        : "";
+    const summaryMarkup = summary
+      ? `<p class="chapter-brief-text">${escapeHtml(summary)}</p>`
+      : `<p class="chapter-brief-text is-empty">暂无章节简介。</p>`;
+    return `<div class="chapter-brief">${originalMarkup}${summaryMarkup}</div>`;
   }
 
   function renderSegmentLinks(chapterId, audio) {
@@ -955,6 +993,8 @@
     buildTtsPayload,
     renderTtsVoices,
     bookPreviewUrl,
+    chapterDisplayTitle,
+    renderChapterBrief,
     renderSegmentLinks,
     renderChapterAudioPanel,
     shouldRefreshAudioDuringJob,

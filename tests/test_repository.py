@@ -200,6 +200,63 @@ def test_chapter_update_revision_blocks_stale_artifact_promotion(tmp_path: Path)
     assert repo.get_chapter(chapter.id).translation_path is None
 
 
+def test_promote_chapter_translation_metadata_only_for_latest_current_job(tmp_path: Path):
+    repo = Repository(tmp_path / "app.db")
+    repo.initialize()
+    book = repo.create_book("Title", "txt", "book.txt", "s", "f", "c")
+    chapter = repo.create_chapter(book.id, 0, "The Gift", "books/1/chapters/0000.txt", 10, 2)
+    older = repo.create_job(
+        book.id,
+        chapter.id,
+        JobKind.TRANSLATE,
+        total_units=1,
+        options={"chapter_revision": chapter.content_revision},
+    )
+    newer = repo.create_job(
+        book.id,
+        chapter.id,
+        JobKind.TRANSLATE,
+        total_units=1,
+        options={"chapter_revision": chapter.content_revision},
+    )
+
+    assert repo.promote_chapter_translation_metadata_if_current_job(
+        older.id,
+        translated_title="旧标题",
+        summary="旧简介",
+    ) is False
+    assert repo.get_chapter(chapter.id).translated_title is None
+    assert repo.promote_chapter_translation_metadata_if_current_job(
+        newer.id,
+        translated_title="麦琪的礼物",
+        summary="本章讲述一对夫妻互赠礼物。",
+    ) is True
+
+    promoted = repo.get_chapter(chapter.id)
+    assert promoted.translated_title == "麦琪的礼物"
+    assert promoted.summary == "本章讲述一对夫妻互赠礼物。"
+
+
+def test_chapter_update_clears_translation_metadata(tmp_path: Path):
+    repo = Repository(tmp_path / "app.db")
+    repo.initialize()
+    book = repo.create_book("Title", "txt", "book.txt", "s", "f", "c")
+    chapter = repo.create_chapter(book.id, 0, "The Gift", "books/1/chapters/0000.txt", 10, 2)
+    job = repo.create_job(
+        book.id,
+        chapter.id,
+        JobKind.TRANSLATE,
+        total_units=1,
+        options={"chapter_revision": chapter.content_revision},
+    )
+    assert repo.promote_chapter_translation_metadata_if_current_job(job.id, "麦琪的礼物", "一两句简介") is True
+
+    updated = repo.update_chapter(chapter.id, "The Gift Revised", chapter.text_path, 12, 3)
+
+    assert updated.translated_title is None
+    assert updated.summary is None
+
+
 def test_legacy_revision_zero_jobs_can_promote_until_chapter_changes(tmp_path: Path):
     repo = Repository(tmp_path / "app.db")
     repo.initialize()
