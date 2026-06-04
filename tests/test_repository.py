@@ -257,6 +257,22 @@ def test_chapter_update_clears_translation_metadata(tmp_path: Path):
     assert updated.summary is None
 
 
+def test_repository_stores_and_clears_chapter_tags(tmp_path: Path):
+    repo = Repository(tmp_path / "app.db")
+    repo.initialize()
+    book = repo.create_book("Title", "txt", "book.txt", "s", "f", "c")
+    chapter = repo.create_chapter(book.id, 0, "The Gift", "books/1/chapters/0000.txt", 10, 2)
+
+    tagged = repo.update_chapter_tags(chapter.id, ["欧亨利", "短篇小说", "有声书"])
+
+    assert tagged.tags == ["欧亨利", "短篇小说", "有声书"]
+    assert repo.get_chapter(chapter.id).tags == ["欧亨利", "短篇小说", "有声书"]
+
+    updated = repo.update_chapter(chapter.id, "The Gift Revised", chapter.text_path, 12, 3)
+
+    assert updated.tags == []
+
+
 def test_legacy_revision_zero_jobs_can_promote_until_chapter_changes(tmp_path: Path):
     repo = Repository(tmp_path / "app.db")
     repo.initialize()

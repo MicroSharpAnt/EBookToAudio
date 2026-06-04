@@ -92,6 +92,15 @@
     };
   }
 
+  function buildChapterTagsPayload(settings) {
+    const source = settings || settingsFromDom();
+    return {
+      provider: source.translationProvider || "",
+      api_key: source.translationApiKey || "",
+      context: source.translationContext || "",
+    };
+  }
+
   function buildTtsPayload(settings) {
     const source = settings || settingsFromDom();
     return {
@@ -461,9 +470,11 @@
       </summary>
       <div class="chapter-body">
         ${renderChapterBrief(chapter)}
+        ${renderChapterTags(chapter)}
         <div class="chapter-actions">
           <button type="button" data-view="${chapter.id}">查看</button>
           <button type="button" data-translate="${chapter.id}" class="primary">将文章翻译为中文</button>
+          <button type="button" data-tags="${chapter.id}">获取标签</button>
           <button type="button" data-tts="${chapter.id}">TTS</button>
           ${ttsJob ? `<button type="button" data-merge="${ttsJob.id}">合并音频</button>` : ""}
         </div>
@@ -522,6 +533,19 @@
       ? `<p class="chapter-brief-text">${escapeHtml(summary)}</p>`
       : `<p class="chapter-brief-text is-empty">暂无章节简介。</p>`;
     return `<div class="chapter-brief">${originalMarkup}${summaryMarkup}</div>`;
+  }
+
+  function renderChapterTags(chapter) {
+    const tags = Array.isArray(chapter && chapter.tags)
+      ? chapter.tags.map(stringValue).filter(Boolean)
+      : [];
+    if (!tags.length) {
+      return "";
+    }
+    return `<div class="chapter-tags">
+      <span class="chapter-tags-label">章节标签</span>
+      <div class="tag-list">${tags.map((tag) => `<span class="tag-pill">${escapeHtml(tag)}</span>`).join("")}</div>
+    </div>`;
   }
 
   function renderSegmentLinks(chapterId, audio) {
@@ -710,6 +734,23 @@
       setStatus(`章节 ${chapterId} 翻译任务已创建。`);
     } catch (error) {
       setStatus(`翻译失败：${error.message}`, "error");
+    }
+  }
+
+  async function generateChapterTags(chapterId) {
+    try {
+      state.expandedChapters.add(chapterId);
+      renderChapters();
+      setStatus(`正在为章节 ${chapterId} 生成标签...`);
+      const updated = await api(`/api/chapters/${chapterId}/tags`, {
+        method: "POST",
+        body: JSON.stringify(buildChapterTagsPayload()),
+      });
+      state.chapters = state.chapters.map((chapter) => (chapter.id === updated.id ? updated : chapter));
+      renderChapters();
+      setStatus(`章节 ${chapterId} 标签已生成。`);
+    } catch (error) {
+      setStatus(`标签生成失败：${error.message}`, "error");
     }
   }
 
@@ -971,6 +1012,8 @@
           openEditor(Number(target.dataset.view));
         } else if (target.dataset.translate) {
           translateChapter(Number(target.dataset.translate));
+        } else if (target.dataset.tags) {
+          generateChapterTags(Number(target.dataset.tags));
         } else if (target.dataset.tts) {
           ttsChapter(Number(target.dataset.tts));
         } else if (target.dataset.merge) {
@@ -990,11 +1033,13 @@
     progressPercent,
     statusLabel,
     buildTranslatePayload,
+    buildChapterTagsPayload,
     buildTtsPayload,
     renderTtsVoices,
     bookPreviewUrl,
     chapterDisplayTitle,
     renderChapterBrief,
+    renderChapterTags,
     renderSegmentLinks,
     renderChapterAudioPanel,
     shouldRefreshAudioDuringJob,

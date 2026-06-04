@@ -59,6 +59,7 @@ class Chapter:
     translation_path: str | None = None
     translated_title: str | None = None
     summary: str | None = None
+    tags: list[str] = field(default_factory=list)
     audio_path: str | None = None
     content_revision: int = 0
     created_at: str = ""

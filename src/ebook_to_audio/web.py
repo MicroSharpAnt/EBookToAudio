@@ -66,6 +66,12 @@ class TranslateRequest(BaseModel):
     parallel_segments: int | None = None
 
 
+class ChapterTagsRequest(BaseModel):
+    api_key: str | None = None
+    provider: str | None = None
+    context: str | None = None
+
+
 class TTSRequest(BaseModel):
     provider: str | None = None
     api_key: str | None = None
@@ -466,6 +472,29 @@ def create_app(
             )
         )
 
+    @app.post("/api/chapters/{chapter_id}/tags")
+    async def generate_chapter_tags(chapter_id: int, request: ChapterTagsRequest) -> dict[str, Any]:
+        chapter = _get_chapter_or_404(repository, chapter_id)
+        translation_config = _translation_config_for_request(
+            loaded_config.translation,
+            TranslateRequest(api_key=request.api_key, provider=request.provider),
+        )
+        source_text = _chapter_tags_source_text(storage, chapter)
+        try:
+            raw_tags = await runner.llm_client.translate(
+                translation_config.active,
+                _CHAPTER_TAGS_SYSTEM_PROMPT,
+                _chapter_tags_prompt(chapter, source_text, request.context),
+                translation_config.request_timeout_seconds,
+                translation_config.max_retries,
+            )
+        except Exception as exc:
+            raise HTTPException(status_code=502, detail="tag generation failed") from exc
+        tags = _parse_chapter_tags(raw_tags)
+        if not tags:
+            raise HTTPException(status_code=502, detail="tag generation returned no tags")
+        return _chapter_dict(repository.update_chapter_tags(chapter.id, tags))
+
     @app.post("/api/chapters/{chapter_id}/tts")
     async def tts_chapter(
         chapter_id: int,
@@ -701,6 +730,77 @@ def _effective_tts_source(
     if requested_source == "translation" and chapter.translation_path is not None:
         return "translation"
     return "chapter"
+
+
+_CHAPTER_TAGS_SYSTEM_PROMPT = "你是有声书平台的内容运营，擅长生成便于检索的中文标签。"
+_CHAPTER_TAGS_TEXT_LIMIT = 2600
+
+
+def _chapter_tags_source_text(storage: LocalStorage, chapter: Chapter) -> str:
+    source_path = chapter.translation_path or chapter.text_path
+    return _read_artifact_text(storage, source_path)
+
+
+def _chapter_tags_prompt(chapter: Chapter, source_text: str, context: str | None) -> str:
+    context_line = f"\n发布背景：{context.strip()}" if context and context.strip() else ""
+    translated_title = chapter.translated_title or ""
+    summary = chapter.summary or ""
+    return (
+        "请为当前章节生成适合音频平台发布和搜索检索的中文标签。\n"
+        "输出 JSON 对象，字段必须为 tags，值为 5 到 10 个字符串。\n"
+        "标签应覆盖作者/作品、体裁、主题、人物关系、情绪氛围、适听场景等。"
+        "每个标签 2 到 8 个汉字，不要带 # 号，不要输出解释。"
+        f"{context_line}\n\n"
+        f"原章节名：{chapter.title}\n"
+        f"中文章节名：{translated_title}\n"
+        f"章节简介：{summary}\n\n"
+        f"正文节选：\n{source_text[:_CHAPTER_TAGS_TEXT_LIMIT]}"
+    )
+
+
+def _parse_chapter_tags(raw_tags: str) -> list[str]:
+    text = _strip_json_markup(raw_tags)
+    values: Any
+    try:
+        parsed = json.loads(text)
+    except json.JSONDecodeError:
+        values = re.split(r"[,，、\n]+", text)
+    else:
+        values = parsed.get("tags") if isinstance(parsed, dict) else parsed
+    if not isinstance(values, list):
+        return []
+    tags: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        tag = _clean_chapter_tag(value)
+        if tag and tag not in seen:
+            seen.add(tag)
+            tags.append(tag)
+        if len(tags) >= 10:
+            break
+    return tags
+
+
+def _strip_json_markup(text: str) -> str:
+    stripped = text.strip()
+    if stripped.startswith("```"):
+        lines = stripped.splitlines()
+        if lines and lines[0].startswith("```"):
+            lines = lines[1:]
+        if lines and lines[-1].startswith("```"):
+            lines = lines[:-1]
+        stripped = "\n".join(lines).strip()
+    start = stripped.find("{")
+    end = stripped.rfind("}")
+    if start != -1 and end != -1 and start < end:
+        return stripped[start:end + 1]
+    return stripped
+
+
+def _clean_chapter_tag(value: object) -> str:
+    tag = str(value).strip().strip("#＃").strip()
+    tag = re.sub(r"\s+", "", tag)
+    return tag[:16]
 
 
 def _create_translation_job(
@@ -1015,6 +1115,11 @@ class _FakeLLMClient:
                         "把握重点，再进入正文或译文细读。"
                     ),
                 },
+                ensure_ascii=False,
+            )
+        if "字段必须为 tags" in user_prompt:
+            return json.dumps(
+                {"tags": ["鲁迅", "童年回忆", "散文", "有声书", "中文文学"]},
                 ensure_ascii=False,
             )
         return f"译文：{user_prompt}"
