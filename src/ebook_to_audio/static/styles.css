@@ -390,6 +390,39 @@ textarea {
   color: var(--muted);
 }
 
+.chapter-tags {
+  display: grid;
+  gap: 6px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: #fff;
+  padding: 8px 10px;
+}
+
+.chapter-tags-label {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.tag-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.tag-pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  border: 1px solid #b7d4c1;
+  border-radius: 999px;
+  padding: 2px 8px;
+  color: var(--accent-dark);
+  background: #eef7f1;
+  font-size: 12px;
+}
+
 .status-strip {
   display: flex;
   flex-wrap: wrap;

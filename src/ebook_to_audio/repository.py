@@ -28,6 +28,7 @@ class Repository:
             conn.executescript(SCHEMA)
             _ensure_chapter_translation_path(conn)
             _ensure_chapter_translation_metadata(conn)
+            _ensure_chapter_tags(conn)
             _ensure_chapter_audio_path(conn)
             _ensure_chapter_content_revision(conn)
             _ensure_job_error_message(conn)
@@ -177,6 +178,7 @@ class Repository:
                     translation_path = NULL,
                     translated_title = NULL,
                     summary = NULL,
+                    tags = NULL,
                     audio_path = NULL,
                     content_revision = content_revision + 1
                 WHERE id = ?
@@ -250,6 +252,18 @@ class Repository:
                 ),
             )
             return cursor.rowcount == 1
+
+    def update_chapter_tags(self, chapter_id: int, tags: list[str]) -> Chapter:
+        with self._connection() as conn:
+            conn.execute(
+                """
+                UPDATE chapters
+                SET tags = ?
+                WHERE id = ?
+                """,
+                (json.dumps(tags, ensure_ascii=False), chapter_id),
+            )
+            return self._get_chapter(chapter_id, conn)
 
     def update_chapter_translation_path(self, chapter_id: int, translation_path: str) -> None:
         with self._connection() as conn:
@@ -716,6 +730,7 @@ class Repository:
             translation_path=row["translation_path"],
             translated_title=row["translated_title"],
             summary=row["summary"],
+            tags=_chapter_tags_from_row(row),
             audio_path=row["audio_path"],
             content_revision=int(row["content_revision"]),
             created_at=str(row["created_at"]),
@@ -778,6 +793,7 @@ CREATE TABLE IF NOT EXISTS chapters (
     translation_path TEXT,
     translated_title TEXT,
     summary TEXT,
+    tags TEXT,
     audio_path TEXT,
     content_revision INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -842,6 +858,15 @@ def _ensure_chapter_translation_metadata(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE chapters ADD COLUMN summary TEXT")
 
 
+def _ensure_chapter_tags(conn: sqlite3.Connection) -> None:
+    columns = {
+        str(row["name"])
+        for row in conn.execute("PRAGMA table_info(chapters)").fetchall()
+    }
+    if "tags" not in columns:
+        conn.execute("ALTER TABLE chapters ADD COLUMN tags TEXT")
+
+
 def _ensure_chapter_audio_path(conn: sqlite3.Connection) -> None:
     columns = {
         str(row["name"])
@@ -880,3 +905,16 @@ def _option_content_revision(options: dict[str, Any]) -> int | None:
     if isinstance(value, int) and value >= 0:
         return value
     return None
+
+
+def _chapter_tags_from_row(row: sqlite3.Row) -> list[str]:
+    raw_tags = row["tags"]
+    if raw_tags is None:
+        return []
+    try:
+        values = json.loads(str(raw_tags))
+    except json.JSONDecodeError:
+        return []
+    if not isinstance(values, list):
+        return []
+    return [str(value).strip() for value in values if str(value).strip()]

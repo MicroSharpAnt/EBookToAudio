@@ -51,6 +51,23 @@ def test_translate_endpoint_updates_chapter_title_and_summary(tmp_path: Path):
     assert "进入正文或译文细读" in translated["summary"]
 
 
+def test_chapter_tags_endpoint_generates_and_persists_tags(tmp_path: Path):
+    app = create_app(data_dir=tmp_path, config_path=tmp_path / "config.yaml", autostart_jobs=False, use_fake_clients=True)
+    client = TestClient(app)
+    book_id, chapter_id = _book_and_chapter_id(client)
+
+    response = client.post(
+        f"/api/chapters/{chapter_id}/tags",
+        json={"provider": "default", "api_key": "sk-tags", "context": "发布到有声书平台"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["tags"] == ["鲁迅", "童年回忆", "散文", "有声书", "中文文学"]
+    chapters = client.get(f"/api/books/{book_id}/chapters").json()
+    tagged = next(chapter for chapter in chapters if chapter["id"] == chapter_id)
+    assert tagged["tags"] == ["鲁迅", "童年回忆", "散文", "有声书", "中文文学"]
+
+
 def test_book_jobs_endpoint_lists_existing_jobs(tmp_path: Path):
     app = create_app(data_dir=tmp_path, config_path=tmp_path / "config.yaml", autostart_jobs=False, use_fake_clients=True)
     client = TestClient(app)

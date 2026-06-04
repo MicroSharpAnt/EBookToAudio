@@ -60,6 +60,13 @@ assert(chapterBriefMarkup.includes("原章节名"));
 assert(chapterBriefMarkup.includes("The Gift"));
 assert(chapterBriefMarkup.includes("本章讲述一对夫妻互赠礼物。"));
 assert.strictEqual(sandbox.window.EBookToAudio.renderChapterBrief({ title: "第一章" }), "");
+const chapterTagsMarkup = sandbox.window.EBookToAudio.renderChapterTags({
+  tags: ["鲁迅", "散文", "有声书"],
+});
+assert(chapterTagsMarkup.includes("章节标签"));
+assert(chapterTagsMarkup.includes("鲁迅"));
+assert(chapterTagsMarkup.includes("有声书"));
+assert.strictEqual(sandbox.window.EBookToAudio.renderChapterTags({ tags: [] }), "");
 function plain(value) {
   return JSON.parse(JSON.stringify(value));
 }
@@ -83,6 +90,18 @@ assert.deepStrictEqual(
 assert.strictEqual(
   sandbox.window.EBookToAudio.buildTranslatePayload({}).prompt,
   "将文章翻译为中文",
+);
+assert.deepStrictEqual(
+  plain(sandbox.window.EBookToAudio.buildChapterTagsPayload({
+    translationProvider: "deepseek",
+    translationApiKey: "sk-tags",
+    translationContext: "发布到有声书平台",
+  })),
+  {
+    provider: "deepseek",
+    api_key: "sk-tags",
+    context: "发布到有声书平台",
+  },
 );
 const ttsPayload = sandbox.window.EBookToAudio.buildTtsPayload({
   ttsProvider: "mimo",
