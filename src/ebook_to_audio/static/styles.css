@@ -377,6 +377,25 @@ textarea {
   padding: 8px 10px;
 }
 
+.chapter-brief-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.chapter-brief-label {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.copy-summary-button {
+  min-height: 24px;
+  padding: 2px 8px;
+  font-size: 12px;
+}
+
 .chapter-original-title {
   color: var(--muted);
   font-size: 12px;

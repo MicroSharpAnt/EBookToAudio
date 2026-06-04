@@ -529,10 +529,20 @@
       translatedTitle && originalTitle && translatedTitle !== originalTitle
         ? `<p class="chapter-original-title">原章节名：${escapeHtml(originalTitle)}</p>`
         : "";
+    const copyMarkup = summary
+      ? `<button type="button" class="copy-summary-button" data-copy-summary="${chapter.id}">复制简介</button>`
+      : "";
     const summaryMarkup = summary
       ? `<p class="chapter-brief-text">${escapeHtml(summary)}</p>`
       : `<p class="chapter-brief-text is-empty">暂无章节简介。</p>`;
-    return `<div class="chapter-brief">${originalMarkup}${summaryMarkup}</div>`;
+    return `<div class="chapter-brief">
+      <div class="chapter-brief-header">
+        <span class="chapter-brief-label">文章简介</span>
+        ${copyMarkup}
+      </div>
+      ${originalMarkup}
+      ${summaryMarkup}
+    </div>`;
   }
 
   function renderChapterTags(chapter) {
@@ -754,6 +764,21 @@
     }
   }
 
+  async function copyChapterSummary(chapterId) {
+    const chapter = state.chapters.find((item) => item.id === chapterId);
+    const summary = stringValue(chapter && chapter.summary);
+    if (!summary) {
+      setStatus("当前章节还没有可复制的简介。", "error");
+      return;
+    }
+    try {
+      await copyText(summary);
+      setStatus("文章简介已复制。");
+    } catch (error) {
+      setStatus(`复制失败：${error.message}`, "error");
+    }
+  }
+
   async function ttsChapter(chapterId) {
     try {
       state.expandedChapters.add(chapterId);
@@ -938,6 +963,25 @@
     return Number.isFinite(value) && value > 0 ? value : null;
   }
 
+  async function copyText(text) {
+    if (typeof navigator !== "undefined" && navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
+      await navigator.clipboard.writeText(text);
+      return;
+    }
+    const textarea = document.createElement("textarea");
+    textarea.value = text;
+    textarea.setAttribute("readonly", "readonly");
+    textarea.style.position = "fixed";
+    textarea.style.left = "-9999px";
+    document.body.appendChild(textarea);
+    textarea.select();
+    const copied = document.execCommand && document.execCommand("copy");
+    textarea.remove();
+    if (!copied) {
+      throw new Error("浏览器不支持自动复制");
+    }
+  }
+
   function escapeHtml(value) {
     return String(value == null ? "" : value)
       .replace(/&/g, "&amp;")
@@ -1012,6 +1056,8 @@
           openEditor(Number(target.dataset.view));
         } else if (target.dataset.translate) {
           translateChapter(Number(target.dataset.translate));
+        } else if (target.dataset.copySummary) {
+          copyChapterSummary(Number(target.dataset.copySummary));
         } else if (target.dataset.tags) {
           generateChapterTags(Number(target.dataset.tags));
         } else if (target.dataset.tts) {

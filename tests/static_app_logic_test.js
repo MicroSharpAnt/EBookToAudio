@@ -52,6 +52,7 @@ assert.strictEqual(
   "The Gift",
 );
 const chapterBriefMarkup = sandbox.window.EBookToAudio.renderChapterBrief({
+  id: 8,
   title: "The Gift",
   translated_title: "麦琪的礼物",
   summary: "本章讲述一对夫妻互赠礼物。",
@@ -59,6 +60,15 @@ const chapterBriefMarkup = sandbox.window.EBookToAudio.renderChapterBrief({
 assert(chapterBriefMarkup.includes("原章节名"));
 assert(chapterBriefMarkup.includes("The Gift"));
 assert(chapterBriefMarkup.includes("本章讲述一对夫妻互赠礼物。"));
+assert(chapterBriefMarkup.includes("复制简介"));
+assert(chapterBriefMarkup.includes('data-copy-summary="8"'));
+const emptySummaryBriefMarkup = sandbox.window.EBookToAudio.renderChapterBrief({
+  id: 9,
+  title: "The Gift",
+  translated_title: "麦琪的礼物",
+});
+assert(emptySummaryBriefMarkup.includes("暂无章节简介。"));
+assert(!emptySummaryBriefMarkup.includes("复制简介"));
 assert.strictEqual(sandbox.window.EBookToAudio.renderChapterBrief({ title: "第一章" }), "");
 const chapterTagsMarkup = sandbox.window.EBookToAudio.renderChapterTags({
   tags: ["鲁迅", "散文", "有声书"],
