@@ -76,6 +76,8 @@ const chapterTagsMarkup = sandbox.window.EBookToAudio.renderChapterTags({
 assert(chapterTagsMarkup.includes("章节标签"));
 assert(chapterTagsMarkup.includes("鲁迅"));
 assert(chapterTagsMarkup.includes("有声书"));
+assert(chapterTagsMarkup.includes('data-copy-tag="鲁迅"'));
+assert(chapterTagsMarkup.includes('data-copy-tag="有声书"'));
 assert.strictEqual(sandbox.window.EBookToAudio.renderChapterTags({ tags: [] }), "");
 function plain(value) {
   return JSON.parse(JSON.stringify(value));
