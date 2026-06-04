@@ -440,6 +440,13 @@ textarea {
   color: var(--accent-dark);
   background: #eef7f1;
   font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.tag-pill:hover {
+  border-color: var(--accent);
+  background: #e2f1e7;
 }
 
 .status-strip {

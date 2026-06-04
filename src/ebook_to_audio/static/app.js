@@ -554,7 +554,7 @@
     }
     return `<div class="chapter-tags">
       <span class="chapter-tags-label">章节标签</span>
-      <div class="tag-list">${tags.map((tag) => `<span class="tag-pill">${escapeHtml(tag)}</span>`).join("")}</div>
+      <div class="tag-list">${tags.map((tag) => `<button type="button" class="tag-pill" data-copy-tag="${escapeHtml(tag)}">${escapeHtml(tag)}</button>`).join("")}</div>
     </div>`;
   }
 
@@ -774,6 +774,20 @@
     try {
       await copyText(summary);
       setStatus("文章简介已复制。");
+    } catch (error) {
+      setStatus(`复制失败：${error.message}`, "error");
+    }
+  }
+
+  async function copyChapterTag(tag) {
+    const cleanedTag = stringValue(tag);
+    if (!cleanedTag) {
+      setStatus("没有可复制的标签。", "error");
+      return;
+    }
+    try {
+      await copyText(cleanedTag);
+      setStatus(`标签已复制：${cleanedTag}`);
     } catch (error) {
       setStatus(`复制失败：${error.message}`, "error");
     }
@@ -1058,6 +1072,8 @@
           translateChapter(Number(target.dataset.translate));
         } else if (target.dataset.copySummary) {
           copyChapterSummary(Number(target.dataset.copySummary));
+        } else if (target.dataset.copyTag) {
+          copyChapterTag(target.dataset.copyTag);
         } else if (target.dataset.tags) {
           generateChapterTags(Number(target.dataset.tags));
         } else if (target.dataset.tts) {
