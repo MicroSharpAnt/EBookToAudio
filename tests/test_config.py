@@ -199,3 +199,32 @@ def test_safe_metadata_excludes_literal_secret_values(tmp_path: Path):
 
     assert "sk-test" not in metadata_text
     assert "mimo-key" not in metadata_text
+
+
+def test_load_config_reads_publishing_section(tmp_path: Path):
+    config_path = tmp_path / "config.yaml"
+    write_config(
+        config_path,
+        minimal_config(
+            limits_block="""
+publishing:
+  ximalaya:
+    album_id: "122326236"
+    default_tags:
+      - 有声书
+      - 中文文学
+    description_footer: "本音频由 EBookToAudio 辅助生成。"
+""",
+        ),
+    )
+
+    config = load_config(config_path)
+
+    assert config.publishing.ximalaya_album_id == "122326236"
+    assert config.publishing.default_tags == ("有声书", "中文文学")
+    assert config.publishing.description_footer == "本音频由 EBookToAudio 辅助生成。"
+    assert config.safe_metadata()["publishing"]["ximalaya"] == {
+        "has_album_id": True,
+        "default_tags": ["有声书", "中文文学"],
+        "has_description_footer": True,
+    }

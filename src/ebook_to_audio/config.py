@@ -61,12 +61,20 @@ class LimitsConfig:
 
 
 @dataclass(frozen=True)
+class PublishingConfig:
+    ximalaya_album_id: str = ""
+    default_tags: tuple[str, ...] = ()
+    description_footer: str = ""
+
+
+@dataclass(frozen=True)
 class AppConfig:
     active_translation_provider: str
     data_dir: Path
     translation: TranslationConfig
     tts: TTSConfig
     limits: LimitsConfig
+    publishing: PublishingConfig
 
     def safe_metadata(self) -> dict[str, Any]:
         return {
@@ -102,6 +110,13 @@ class AppConfig:
                 "max_upload_bytes": self.limits.max_upload_bytes,
                 "max_parallel_translation_segments": self.limits.max_parallel_translation_segments,
                 "max_parallel_tts_segments": self.limits.max_parallel_tts_segments,
+            },
+            "publishing": {
+                "ximalaya": {
+                    "has_album_id": bool(self.publishing.ximalaya_album_id),
+                    "default_tags": list(self.publishing.default_tags),
+                    "has_description_footer": bool(self.publishing.description_footer),
+                },
             },
         }
 
@@ -185,6 +200,9 @@ def load_config(path: Path) -> AppConfig:
             default=4,
         ),
     )
+    publishing = _build_publishing(
+        _get_mapping(raw, "publishing", "publishing", required=False)
+    )
 
     return AppConfig(
         active_translation_provider=active_translation_provider,
@@ -192,6 +210,7 @@ def load_config(path: Path) -> AppConfig:
         translation=translation,
         tts=tts,
         limits=limits,
+        publishing=publishing,
     )
 
 
@@ -246,6 +265,31 @@ def _build_providers(raw: dict[str, Any]) -> dict[str, ProviderConfig]:
     return providers
 
 
+def _build_publishing(raw: dict[str, Any]) -> PublishingConfig:
+    ximalaya_raw = _get_mapping(raw, "ximalaya", "publishing.ximalaya", required=False)
+    return PublishingConfig(
+        ximalaya_album_id=_get_text(
+            ximalaya_raw,
+            "album_id",
+            "publishing.ximalaya.album_id",
+            required=False,
+        ),
+        default_tags=tuple(
+            _get_text_list(
+                ximalaya_raw,
+                "default_tags",
+                "publishing.ximalaya.default_tags",
+            )
+        ),
+        description_footer=_get_text(
+            ximalaya_raw,
+            "description_footer",
+            "publishing.ximalaya.description_footer",
+            required=False,
+        ),
+    )
+
+
 def _get_mapping(
     data: dict[str, Any], key: str, path: str, *, required: bool = True
 ) -> dict[str, Any]:
@@ -274,6 +318,22 @@ def _get_text(
     if not isinstance(value, str) or not value.strip():
         raise ConfigError(f"{path} must be non-empty text")
     return value
+
+
+def _get_text_list(data: dict[str, Any], key: str, path: str) -> list[str]:
+    value = data.get(key)
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        raise ConfigError(f"{path} must be a list of text values")
+    values: list[str] = []
+    for index, item in enumerate(value):
+        if not isinstance(item, str):
+            raise ConfigError(f"{path}[{index}] must be text")
+        cleaned = item.strip()
+        if cleaned:
+            values.append(cleaned)
+    return values
 
 
 def _get_positive_int(

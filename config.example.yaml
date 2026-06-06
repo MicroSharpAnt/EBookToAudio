@@ -27,3 +27,9 @@ limits:
   max_upload_bytes: 20971520
   max_parallel_translation_segments: 3
   max_parallel_tts_segments: 4
+publishing:
+  ximalaya:
+    album_id: "122326236"
+    default_tags:
+      - 有声书
+    description_footer: ""
