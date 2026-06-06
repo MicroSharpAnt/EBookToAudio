@@ -272,7 +272,7 @@ def test_fill_draft_returns_manual_action_when_upload_control_unavailable(
         tags=("有声书",),
     )
 
-    publisher = PlaywrightXimalayaPublisher(user_data_dir=tmp_path / "browser")
+    publisher = PlaywrightXimalayaPublisher(user_data_dir=tmp_path / "browser", timeout_ms=1)
     result = publisher.fill_draft(draft)
 
     assert result.status == "manual_action_required"
@@ -280,6 +280,88 @@ def test_fill_draft_returns_manual_action_when_upload_control_unavailable(
     assert result.draft == draft
     assert fake_manager.playwright.stopped is False
     assert fake_manager.playwright.context.closed is False
+
+
+def test_fill_draft_closes_browser_and_raises_when_locator_probe_has_runtime_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    class FakePlaywrightError(Exception):
+        pass
+
+    class CrashingLocator:
+        @property
+        def first(self):
+            return self
+
+        def count(self):
+            raise FakePlaywrightError("page closed")
+
+    class FakePage:
+        def goto(self, _url, **_kwargs):
+            pass
+
+        def get_by_text(self, _text, **_kwargs):
+            return CrashingLocator()
+
+        def locator(self, _selector):
+            return CrashingLocator()
+
+    class FakeBrowserContext:
+        def __init__(self):
+            self.closed = False
+            self.pages = [FakePage()]
+
+        def close(self):
+            self.closed = True
+
+    class FakeChromium:
+        def __init__(self, context):
+            self.context = context
+
+        def launch_persistent_context(self, *_args, **_kwargs):
+            return self.context
+
+    class FakePlaywright:
+        def __init__(self):
+            self.context = FakeBrowserContext()
+            self.chromium = FakeChromium(self.context)
+            self.stopped = False
+
+        def stop(self):
+            self.stopped = True
+
+    class FakePlaywrightManager:
+        def __init__(self):
+            self.playwright = FakePlaywright()
+
+        def start(self):
+            return self.playwright
+
+    fake_manager = FakePlaywrightManager()
+    fake_sync_api = types.ModuleType("playwright.sync_api")
+    fake_sync_api.Error = FakePlaywrightError
+    fake_sync_api.sync_playwright = lambda: fake_manager
+    monkeypatch.setitem(sys.modules, "playwright", types.ModuleType("playwright"))
+    monkeypatch.setitem(sys.modules, "playwright.sync_api", fake_sync_api)
+
+    audio_file = tmp_path / "chapter.wav"
+    audio_file.write_bytes(b"RIFF")
+    draft = XimalayaDraft(
+        album_id="122326236",
+        upload_url="https://studio.ximalaya.com/upload?albumId=122326236",
+        audio_path=audio_file,
+        title="第一章",
+        description="简介",
+        tags=("有声书",),
+    )
+
+    publisher = PlaywrightXimalayaPublisher(user_data_dir=tmp_path / "browser", timeout_ms=1)
+
+    with pytest.raises(XimalayaPublishError, match="页面自动填写失败"):
+        publisher.fill_draft(draft)
+
+    assert fake_manager.playwright.stopped is True
+    assert fake_manager.playwright.context.closed is True
 
 
 def test_fill_first_available_waits_for_late_rendered_control():
