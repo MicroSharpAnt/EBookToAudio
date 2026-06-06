@@ -201,6 +201,12 @@ def test_safe_metadata_excludes_literal_secret_values(tmp_path: Path):
     assert "mimo-key" not in metadata_text
 
 
+def test_config_example_loads():
+    config = load_config(Path("config.example.yaml"))
+
+    assert config.publishing.description_footer == ""
+
+
 def test_load_config_reads_publishing_section(tmp_path: Path):
     config_path = tmp_path / "config.yaml"
     write_config(

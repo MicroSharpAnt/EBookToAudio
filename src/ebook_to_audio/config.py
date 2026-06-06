@@ -273,6 +273,7 @@ def _build_publishing(raw: dict[str, Any]) -> PublishingConfig:
             "album_id",
             "publishing.ximalaya.album_id",
             required=False,
+            allow_empty=True,
         ),
         default_tags=tuple(
             _get_text_list(
@@ -286,6 +287,7 @@ def _build_publishing(raw: dict[str, Any]) -> PublishingConfig:
             "description_footer",
             "publishing.ximalaya.description_footer",
             required=False,
+            allow_empty=True,
         ),
     )
 
@@ -308,14 +310,23 @@ def _ensure_mapping(value: Any, path: str) -> dict[str, Any]:
 
 
 def _get_text(
-    data: dict[str, Any], key: str, path: str, *, required: bool = True
+    data: dict[str, Any],
+    key: str,
+    path: str,
+    *,
+    required: bool = True,
+    allow_empty: bool = False,
 ) -> str:
     value = data.get(key)
     if value is None:
         if required:
             raise ConfigError(f"{path} is required")
         return ""
-    if not isinstance(value, str) or not value.strip():
+    if not isinstance(value, str):
+        raise ConfigError(f"{path} must be non-empty text")
+    if allow_empty and not value:
+        return ""
+    if not value.strip():
         raise ConfigError(f"{path} must be non-empty text")
     return value
 
