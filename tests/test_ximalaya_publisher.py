@@ -56,6 +56,18 @@ def test_build_ximalaya_draft_falls_back_to_original_title(tmp_path: Path):
     audio_file = tmp_path / "chapter.wav"
     audio_file.write_bytes(b"RIFF")
     draft = build_ximalaya_draft(
+        chapter(translated_title=None, title="Original Chapter Title"),
+        PublishingConfig(ximalaya_album_id="122326236"),
+        audio_file,
+    )
+
+    assert draft.title == "Original Chapter Title"
+
+
+def test_build_ximalaya_draft_falls_back_to_chapter_number(tmp_path: Path):
+    audio_file = tmp_path / "chapter.wav"
+    audio_file.write_bytes(b"RIFF")
+    draft = build_ximalaya_draft(
         chapter(translated_title=None, summary=None, tags=[], title=""),
         PublishingConfig(ximalaya_album_id="122326236"),
         audio_file,
