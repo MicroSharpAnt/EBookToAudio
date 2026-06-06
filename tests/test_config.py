@@ -204,6 +204,8 @@ def test_safe_metadata_excludes_literal_secret_values(tmp_path: Path):
 def test_config_example_loads():
     config = load_config(Path("config.example.yaml"))
 
+    assert config.publishing.ximalaya_album_id == "122326236"
+    assert config.publishing.default_tags == ("有声书",)
     assert config.publishing.description_footer == ""
 
 

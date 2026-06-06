@@ -26,6 +26,7 @@ from .config import (
     PRESET_TTS_VOICES,
     PromptConfig,
     ProviderConfig,
+    PublishingConfig,
     TTSConfig,
     TranslationConfig,
     load_config,
@@ -1193,6 +1194,7 @@ def _default_config(data_dir: Path, limits: LimitsConfig | None) -> AppConfig:
             max_parallel_translation_segments=3,
             max_parallel_tts_segments=4,
         ),
+        publishing=PublishingConfig(),
     )
 
 
