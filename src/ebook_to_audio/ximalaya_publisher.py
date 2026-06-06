@@ -215,9 +215,19 @@ def _wait_for_first_candidate(candidates, timeout_ms: int):
             try:
                 if locator.count() > 0:
                     return locator.first, metadata
-            except Exception:
+            except Exception as exc:
+                if _is_playwright_runtime_error(exc):
+                    raise
                 continue
         remaining = deadline - monotonic()
         if remaining <= 0:
             return None
         sleep(min(0.1, remaining))
+
+
+def _is_playwright_runtime_error(exc: Exception) -> bool:
+    try:
+        from playwright.sync_api import Error as PlaywrightError
+    except ImportError:
+        return False
+    return isinstance(exc, PlaywrightError)
