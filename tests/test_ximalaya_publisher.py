@@ -1,3 +1,4 @@
+import builtins
 import sys
 import types
 from pathlib import Path
@@ -10,7 +11,9 @@ from ebook_to_audio.ximalaya_publisher import (
     PlaywrightXimalayaPublisher,
     XimalayaDraft,
     XimalayaDraftError,
+    XimalayaPublishError,
     build_ximalaya_draft,
+    _fill_first_available,
 )
 
 
@@ -197,3 +200,102 @@ def test_fill_draft_keeps_browser_open_for_manual_review(
     assert fake_manager.exited is False
     assert fake_manager.playwright.stopped is False
     assert fake_manager.playwright.context.closed is False
+
+
+def test_fill_first_available_waits_for_late_rendered_control():
+    class FakeLocator:
+        def __init__(self, counts):
+            self.counts = list(counts)
+            self.filled = None
+
+        @property
+        def first(self):
+            return self
+
+        def count(self):
+            return self.counts.pop(0) if self.counts else 1
+
+        def fill(self, value, **_kwargs):
+            self.filled = value
+
+    class MissingLocator:
+        @property
+        def first(self):
+            return self
+
+        def count(self):
+            return 0
+
+    class FakePage:
+        def __init__(self):
+            self.title = FakeLocator([0, 1])
+
+        def get_by_label(self, label, **_kwargs):
+            return self.title if label == "标题" else MissingLocator()
+
+        def get_by_placeholder(self, _placeholder, **_kwargs):
+            return MissingLocator()
+
+        def locator(self, _selector):
+            return MissingLocator()
+
+    page = FakePage()
+
+    _fill_first_available(page, ["标题"], "第一章", timeout_ms=1_000)
+
+    assert page.title.filled == "第一章"
+
+
+def test_close_stops_playwright_when_context_close_raises(tmp_path: Path):
+    class ClosingContext:
+        def close(self):
+            raise RuntimeError("context close failed")
+
+    class FakePlaywright:
+        def __init__(self):
+            self.stopped = False
+
+        def stop(self):
+            self.stopped = True
+
+    playwright = FakePlaywright()
+    publisher = PlaywrightXimalayaPublisher(user_data_dir=tmp_path / "browser")
+    publisher._browser_context = ClosingContext()
+    publisher._playwright = playwright
+
+    with pytest.raises(RuntimeError, match="context close failed"):
+        publisher.close()
+
+    assert playwright.stopped is True
+    assert publisher._browser_context is None
+    assert publisher._playwright is None
+
+
+def test_missing_playwright_message_uses_main_dependency_install_command(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    real_import = builtins.__import__
+
+    def fake_import(name, globals=None, locals=None, fromlist=(), level=0):
+        if name == "playwright.sync_api":
+            raise ImportError("No module named playwright")
+        return real_import(name, globals, locals, fromlist, level)
+
+    monkeypatch.setattr(builtins, "__import__", fake_import)
+    publisher = PlaywrightXimalayaPublisher(user_data_dir=tmp_path / "browser")
+    draft = XimalayaDraft(
+        album_id="122326236",
+        upload_url="https://studio.ximalaya.com/upload?albumId=122326236",
+        audio_path=tmp_path / "chapter.wav",
+        title="第一章",
+        description="",
+        tags=(),
+    )
+
+    with pytest.raises(XimalayaPublishError) as exc_info:
+        publisher.fill_draft(draft)
+
+    message = str(exc_info.value)
+    assert "pip install -e ." in message
+    assert "playwright install chromium" in message
+    assert "[dev]" not in message
