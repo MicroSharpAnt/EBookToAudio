@@ -82,5 +82,89 @@ def _dedupe_tags(values: list[str]) -> list[str]:
 
 
 class PlaywrightXimalayaPublisher:
+    def __init__(self, user_data_dir: Path | None = None, timeout_ms: int = 120_000):
+        self.user_data_dir = user_data_dir or Path.home() / ".ebook-to-audio" / "ximalaya-browser"
+        self.timeout_ms = timeout_ms
+
     def fill_draft(self, draft: XimalayaDraft) -> XimalayaPublishResult:
-        raise XimalayaPublishError("Playwright publisher is not implemented yet.")
+        try:
+            from playwright.sync_api import Error as PlaywrightError
+            from playwright.sync_api import sync_playwright
+        except ImportError as exc:
+            raise XimalayaPublishError(
+                "缺少 Playwright 运行库。请运行 pip install -e \".[dev]\" 后执行 playwright install chromium。"
+            ) from exc
+
+        self.user_data_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            with sync_playwright() as playwright:
+                context = playwright.chromium.launch_persistent_context(
+                    str(self.user_data_dir),
+                    headless=False,
+                    accept_downloads=True,
+                )
+                page = context.pages[0] if context.pages else context.new_page()
+                page.goto(draft.upload_url, wait_until="domcontentloaded", timeout=self.timeout_ms)
+                _set_file_input(page, draft.audio_path, self.timeout_ms)
+                _fill_first_available(page, ["标题", "声音标题", "请输入标题"], draft.title, self.timeout_ms)
+                if draft.description:
+                    _fill_first_available(page, ["简介", "声音简介", "请输入简介"], draft.description, self.timeout_ms)
+                if draft.tags:
+                    _fill_tags(page, draft.tags, self.timeout_ms)
+                return XimalayaPublishResult(
+                    status="ready_for_review",
+                    message="喜马拉雅草稿已填写，请在浏览器中确认后手动发布。",
+                    draft=draft,
+                )
+        except PlaywrightError as exc:
+            raise XimalayaPublishError(f"喜马拉雅页面自动填写失败：{exc}") from exc
+
+
+def _set_file_input(page, audio_path: Path, timeout_ms: int) -> None:
+    file_inputs = page.locator("input[type='file']")
+    if file_inputs.count() > 0:
+        file_inputs.first.set_input_files(str(audio_path), timeout=timeout_ms)
+        return
+    for text in ("上传", "选择文件", "上传声音"):
+        button = page.get_by_text(text, exact=False)
+        if button.count() > 0:
+            button.first.click(timeout=timeout_ms)
+            page.locator("input[type='file']").first.set_input_files(str(audio_path), timeout=timeout_ms)
+            return
+    raise XimalayaPublishError("未找到音频上传控件，请登录后重试或检查上传页是否改版。")
+
+
+def _fill_first_available(page, labels: list[str], value: str, timeout_ms: int) -> None:
+    for label in labels:
+        candidates = [
+            page.get_by_label(label, exact=False),
+            page.get_by_placeholder(label, exact=False),
+            page.locator(f"input[placeholder*='{label}']"),
+            page.locator(f"textarea[placeholder*='{label}']"),
+        ]
+        for candidate in candidates:
+            if candidate.count() > 0:
+                target = candidate.first
+                target.fill(value, timeout=timeout_ms)
+                return
+    raise XimalayaPublishError(f"未找到字段：{labels[0]}。请检查喜马拉雅上传页是否改版。")
+
+
+def _fill_tags(page, tags: tuple[str, ...], timeout_ms: int) -> None:
+    tag_text = " ".join(tags)
+    for label in ("标签", "声音标签", "请输入标签"):
+        candidates = [
+            page.get_by_label(label, exact=False),
+            page.get_by_placeholder(label, exact=False),
+            page.locator(f"input[placeholder*='{label}']"),
+        ]
+        for candidate in candidates:
+            if candidate.count() > 0:
+                target = candidate.first
+                target.fill(tag_text, timeout=timeout_ms)
+                try:
+                    target.press("Enter", timeout=timeout_ms)
+                except Exception:
+                    pass
+                return
+    raise XimalayaPublishError("未找到字段：标签。请检查喜马拉雅上传页是否改版。")
