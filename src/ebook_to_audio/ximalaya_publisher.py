@@ -79,3 +79,8 @@ def _dedupe_tags(values: list[str]) -> list[str]:
             seen.add(cleaned)
             tags.append(cleaned)
     return tags
+
+
+class PlaywrightXimalayaPublisher:
+    def fill_draft(self, draft: XimalayaDraft) -> XimalayaPublishResult:
+        raise XimalayaPublishError("Playwright publisher is not implemented yet.")
