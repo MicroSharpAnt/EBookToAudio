@@ -6,12 +6,64 @@ const vm = require("vm");
 const appPath = path.join(__dirname, "..", "src", "ebook_to_audio", "static", "app.js");
 const source = fs.readFileSync(appPath, "utf8");
 
+function createTestElement(tagName) {
+  return {
+    tagName,
+    children: [],
+    dataset: {},
+    className: "",
+    open: false,
+    textContent: "",
+    _innerHTML: "",
+    set innerHTML(value) {
+      this._innerHTML = String(value);
+    },
+    get innerHTML() {
+      return this._innerHTML;
+    },
+    replaceChildren() {
+      this.children = [];
+      this._innerHTML = "";
+    },
+    appendChild(child) {
+      this.children.push(child);
+      return child;
+    },
+    querySelector(selector) {
+      return findInElement(this, selector);
+    },
+  };
+}
+
+function findInElement(element, selector) {
+  const attrMatch = selector.match(/^\[([^=]+)=['"]([^'"]+)['"]\]$/);
+  if (attrMatch && element.innerHTML.includes(`${attrMatch[1]}="${attrMatch[2]}"`)) {
+    return createTestElement("matched");
+  }
+  for (const child of element.children || []) {
+    const match = findInElement(child, selector);
+    if (match) {
+      return match;
+    }
+  }
+  return null;
+}
+
+const documentNodes = {
+  "#chapters": createTestElement("section"),
+  "#chapterSummary": createTestElement("p"),
+};
+
 const sandbox = {
   console,
   document: {
     addEventListener() {},
-    querySelector() {
-      return null;
+    createElement: createTestElement,
+    querySelector(selector) {
+      if (documentNodes[selector]) {
+        return documentNodes[selector];
+      }
+      return Object.values(documentNodes).map((node) => node.querySelector(selector)).find(Boolean) || null;
     },
     querySelectorAll() {
       return [];
@@ -347,3 +399,18 @@ assert.deepStrictEqual(
     { id: 9, book_id: 2 },
   ],
 );
+const publishChapter = { id: 42, audio_path: "books/1/audio/chapter.wav", translated_title: "第一章" };
+sandbox.window.EBookToAudio.renderChaptersForTest({
+  book: { id: 1 },
+  chapters: [publishChapter],
+  audio: new Map([[42, { download_url: "/api/chapters/42/audio/download", segments: [] }]]),
+});
+assert(sandbox.document.querySelector("[data-publish-ximalaya='42']"));
+
+const noAudioChapter = { id: 43, audio_path: null, translated_title: "第二章" };
+sandbox.window.EBookToAudio.renderChaptersForTest({
+  book: { id: 1 },
+  chapters: [noAudioChapter],
+  audio: new Map(),
+});
+assert.strictEqual(sandbox.document.querySelector("[data-publish-ximalaya='43']"), null);
