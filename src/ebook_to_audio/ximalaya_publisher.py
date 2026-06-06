@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 import re
+from time import monotonic, sleep
 
 from .config import PublishingConfig
 from .models import Chapter
@@ -93,10 +94,12 @@ class PlaywrightXimalayaPublisher:
         playwright = self._playwright
         self._browser_context = None
         self._playwright = None
-        if browser_context is not None:
-            browser_context.close()
-        if playwright is not None:
-            playwright.stop()
+        try:
+            if browser_context is not None:
+                browser_context.close()
+        finally:
+            if playwright is not None:
+                playwright.stop()
 
     def fill_draft(self, draft: XimalayaDraft) -> XimalayaPublishResult:
         try:
@@ -104,7 +107,7 @@ class PlaywrightXimalayaPublisher:
             from playwright.sync_api import sync_playwright
         except ImportError as exc:
             raise XimalayaPublishError(
-                "缺少 Playwright 运行库。请运行 pip install -e \".[dev]\" 后执行 playwright install chromium。"
+                "缺少 Playwright 运行库。请运行 pip install -e . 后执行 playwright install chromium。"
             ) from exc
 
         self.user_data_dir.mkdir(parents=True, exist_ok=True)
@@ -143,49 +146,75 @@ class PlaywrightXimalayaPublisher:
 
 def _set_file_input(page, audio_path: Path, timeout_ms: int) -> None:
     file_inputs = page.locator("input[type='file']")
-    if file_inputs.count() > 0:
-        file_inputs.first.set_input_files(str(audio_path), timeout=timeout_ms)
-        return
-    for text in ("上传", "选择文件", "上传声音"):
-        button = page.get_by_text(text, exact=False)
-        if button.count() > 0:
-            button.first.click(timeout=timeout_ms)
-            page.locator("input[type='file']").first.set_input_files(str(audio_path), timeout=timeout_ms)
+    candidates = [(file_inputs, "file")]
+    candidates.extend((page.get_by_text(text, exact=False), "button") for text in ("上传", "选择文件", "上传声音"))
+    match = _wait_for_first_candidate(candidates, timeout_ms)
+    if match is not None:
+        target, action = match
+        if action == "file":
+            target.set_input_files(str(audio_path), timeout=timeout_ms)
             return
+        target.click(timeout=timeout_ms)
+        page.locator("input[type='file']").first.set_input_files(str(audio_path), timeout=timeout_ms)
+        return
     raise XimalayaPublishError("未找到音频上传控件，请登录后重试或检查上传页是否改版。")
 
 
 def _fill_first_available(page, labels: list[str], value: str, timeout_ms: int) -> None:
+    candidates = []
     for label in labels:
-        candidates = [
-            page.get_by_label(label, exact=False),
-            page.get_by_placeholder(label, exact=False),
-            page.locator(f"input[placeholder*='{label}']"),
-            page.locator(f"textarea[placeholder*='{label}']"),
-        ]
-        for candidate in candidates:
-            if candidate.count() > 0:
-                target = candidate.first
-                target.fill(value, timeout=timeout_ms)
-                return
+        candidates.extend(
+            [
+                page.get_by_label(label, exact=False),
+                page.get_by_placeholder(label, exact=False),
+                page.locator(f"input[placeholder*='{label}']"),
+                page.locator(f"textarea[placeholder*='{label}']"),
+            ]
+        )
+    target = _wait_for_first_locator(candidates, timeout_ms)
+    if target is not None:
+        target.fill(value, timeout=timeout_ms)
+        return
     raise XimalayaPublishError(f"未找到字段：{labels[0]}。请检查喜马拉雅上传页是否改版。")
 
 
 def _fill_tags(page, tags: tuple[str, ...], timeout_ms: int) -> None:
     tag_text = " ".join(tags)
+    candidates = []
     for label in ("标签", "声音标签", "请输入标签"):
-        candidates = [
-            page.get_by_label(label, exact=False),
-            page.get_by_placeholder(label, exact=False),
-            page.locator(f"input[placeholder*='{label}']"),
-        ]
-        for candidate in candidates:
-            if candidate.count() > 0:
-                target = candidate.first
-                target.fill(tag_text, timeout=timeout_ms)
-                try:
-                    target.press("Enter", timeout=timeout_ms)
-                except Exception:
-                    pass
-                return
+        candidates.extend(
+            [
+                page.get_by_label(label, exact=False),
+                page.get_by_placeholder(label, exact=False),
+                page.locator(f"input[placeholder*='{label}']"),
+            ]
+        )
+    target = _wait_for_first_locator(candidates, timeout_ms)
+    if target is not None:
+        target.fill(tag_text, timeout=timeout_ms)
+        try:
+            target.press("Enter", timeout=timeout_ms)
+        except Exception:
+            pass
+        return
     raise XimalayaPublishError("未找到字段：标签。请检查喜马拉雅上传页是否改版。")
+
+
+def _wait_for_first_locator(candidates, timeout_ms: int):
+    match = _wait_for_first_candidate([(candidate, None) for candidate in candidates], timeout_ms)
+    return None if match is None else match[0]
+
+
+def _wait_for_first_candidate(candidates, timeout_ms: int):
+    deadline = monotonic() + (timeout_ms / 1000)
+    while True:
+        for locator, metadata in candidates:
+            try:
+                if locator.count() > 0:
+                    return locator.first, metadata
+            except Exception:
+                continue
+        remaining = deadline - monotonic()
+        if remaining <= 0:
+            return None
+        sleep(min(0.1, remaining))
