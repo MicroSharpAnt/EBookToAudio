@@ -136,9 +136,12 @@ class PlaywrightXimalayaPublisher:
                 message="喜马拉雅草稿已填写，请在浏览器中确认后手动发布。",
                 draft=draft,
             )
-        except XimalayaPublishError:
-            self.close()
-            raise
+        except XimalayaPublishError as exc:
+            return XimalayaPublishResult(
+                status="manual_action_required",
+                message=f"{exc} 请在已打开的浏览器中完成登录、验证或手动恢复后重试。",
+                draft=draft,
+            )
         except PlaywrightError as exc:
             self.close()
             raise XimalayaPublishError(f"喜马拉雅页面自动填写失败：{exc}") from exc

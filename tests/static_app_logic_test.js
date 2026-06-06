@@ -406,6 +406,24 @@ sandbox.window.EBookToAudio.renderChaptersForTest({
   audio: new Map([[42, { download_url: "/api/chapters/42/audio/download", segments: [] }]]),
 });
 assert(sandbox.document.querySelector("[data-publish-ximalaya='42']"));
+assert.strictEqual(
+  sandbox.window.EBookToAudio.ximalayaDraftPreflightWarning({
+    id: 42,
+    audio_path: "books/1/audio/chapter.wav",
+    summary: "",
+    tags: [],
+  }),
+  "章节 42 已有音频，但缺少简介和标签；仍可发布草稿，也可先生成发布元数据。",
+);
+assert.strictEqual(
+  sandbox.window.EBookToAudio.ximalayaDraftPreflightWarning({
+    id: 42,
+    audio_path: "books/1/audio/chapter.wav",
+    summary: "简介",
+    tags: ["有声书"],
+  }),
+  "",
+);
 
 const noAudioChapter = { id: 43, audio_path: null, translated_title: "第二章" };
 sandbox.window.EBookToAudio.renderChaptersForTest({

@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 
 from ebook_to_audio.models import JobKind, JobStatus
 from ebook_to_audio.web import create_app
+from ebook_to_audio.ximalaya_publisher import XimalayaPublishResult
 
 
 def _book_and_chapter_id(client: TestClient) -> tuple[int, int]:
@@ -549,6 +550,16 @@ class FakeXimalayaPublisher:
         }
 
 
+class ManualActionXimalayaPublisher(FakeXimalayaPublisher):
+    def fill_draft(self, draft):
+        self.drafts.append(draft)
+        return XimalayaPublishResult(
+            status="manual_action_required",
+            message="请在浏览器中完成登录后重试。",
+            draft=draft,
+        )
+
+
 def test_ximalaya_publish_endpoint_fills_draft_with_fake_publisher(tmp_path: Path):
     config_path = tmp_path / "config.yaml"
     config_path.write_text(
@@ -594,6 +605,44 @@ publishing:
     assert app.state.ximalaya_publisher.drafts[0].audio_path.is_file()
 
 
+def test_ximalaya_publish_endpoint_serializes_manual_action_result(tmp_path: Path):
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        """
+active_translation_provider: deepseek
+translation:
+  providers:
+    deepseek:
+      base_url: "https://api.deepseek.com"
+      api_key: "sk-test"
+      model: "deepseek-chat"
+tts:
+  base_url: "https://token-plan-cn.xiaomimimo.com/v1"
+  api_key: "mimo-key"
+  model: "mimo-audio"
+  default_voice: "茉莉"
+publishing:
+  ximalaya:
+    album_id: "122326236"
+""",
+        encoding="utf-8",
+    )
+    app = create_app(data_dir=tmp_path, config_path=config_path, autostart_jobs=False, use_fake_clients=True)
+    app.state.ximalaya_publisher = ManualActionXimalayaPublisher()
+    client = TestClient(app)
+    _, chapter_id = _book_and_chapter_id(client)
+    client.post(f"/api/chapters/{chapter_id}/tts", json={"voice": "茉莉", "parallel_segments": 1, "merge": True})
+
+    response = client.post(f"/api/chapters/{chapter_id}/publish/ximalaya/draft")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "manual_action_required"
+    assert payload["message"] == "请在浏览器中完成登录后重试。"
+    assert payload["album_id"] == "122326236"
+    assert payload["upload_url"] == "https://studio.ximalaya.com/upload?albumId=122326236"
+
+
 def test_ximalaya_publish_endpoint_requires_merged_audio(tmp_path: Path):
     app = create_app(data_dir=tmp_path, config_path=tmp_path / "config.yaml", autostart_jobs=False, use_fake_clients=True)
     app.state.ximalaya_publisher = FakeXimalayaPublisher()
@@ -604,3 +653,16 @@ def test_ximalaya_publish_endpoint_requires_merged_audio(tmp_path: Path):
 
     assert response.status_code == 400
     assert response.json()["detail"] == "请先生成并合并章节音频。"
+
+
+def test_ximalaya_publish_endpoint_requires_album_id_after_audio_exists(tmp_path: Path):
+    app = create_app(data_dir=tmp_path, config_path=tmp_path / "config.yaml", autostart_jobs=False, use_fake_clients=True)
+    app.state.ximalaya_publisher = FakeXimalayaPublisher()
+    client = TestClient(app)
+    chapter_id = _chapter_id(client)
+    client.post(f"/api/chapters/{chapter_id}/tts", json={"voice": "茉莉", "parallel_segments": 1, "merge": True})
+
+    response = client.post(f"/api/chapters/{chapter_id}/publish/ximalaya/draft")
+
+    assert response.status_code == 400
+    assert "publishing.ximalaya.album_id" in response.json()["detail"]

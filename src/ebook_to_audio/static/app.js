@@ -163,6 +163,25 @@
     );
   }
 
+  function ximalayaDraftPreflightWarning(chapter) {
+    if (!chapter || !chapter.audio_path) {
+      return "";
+    }
+    const missing = [];
+    if (!stringValue(chapter.summary)) {
+      missing.push("简介");
+    }
+    const tags = Array.isArray(chapter.tags) ? chapter.tags.filter((tag) => stringValue(tag)) : [];
+    if (!tags.length) {
+      missing.push("标签");
+    }
+    if (!missing.length) {
+      return "";
+    }
+    const chapterLabel = chapter.id == null ? "当前章节" : `章节 ${chapter.id}`;
+    return `${chapterLabel} 已有音频，但缺少${missing.join("和")}；仍可发布草稿，也可先生成发布元数据。`;
+  }
+
   function audioForChapter(audioByChapter, chapterId) {
     if (!audioByChapter) {
       return null;
@@ -813,7 +832,10 @@
     try {
       state.expandedChapters.add(chapterId);
       renderChapters();
-      setStatus(`正在打开喜马拉雅上传草稿：章节 ${chapterId}...`);
+      const chapter = state.chapters.find((item) => Number(item.id) === Number(chapterId));
+      const warning = ximalayaDraftPreflightWarning(chapter);
+      const progress = `正在打开喜马拉雅上传草稿：章节 ${chapterId}...`;
+      setStatus(warning ? `${warning} ${progress}` : progress, warning ? "warning" : "");
       const result = await api(`/api/chapters/${chapterId}/publish/ximalaya/draft`, {
         method: "POST",
       });
@@ -1123,6 +1145,7 @@
     renderChapterAudioPanel,
     shouldRefreshAudioDuringJob,
     chapterDetailsShouldOpen,
+    ximalayaDraftPreflightWarning,
     jobMarkup,
     chapterJobsMarkup,
     jobActionOptions,
