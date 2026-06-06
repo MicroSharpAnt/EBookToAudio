@@ -85,6 +85,18 @@ class PlaywrightXimalayaPublisher:
     def __init__(self, user_data_dir: Path | None = None, timeout_ms: int = 120_000):
         self.user_data_dir = user_data_dir or Path.home() / ".ebook-to-audio" / "ximalaya-browser"
         self.timeout_ms = timeout_ms
+        self._playwright = None
+        self._browser_context = None
+
+    def close(self) -> None:
+        browser_context = self._browser_context
+        playwright = self._playwright
+        self._browser_context = None
+        self._playwright = None
+        if browser_context is not None:
+            browser_context.close()
+        if playwright is not None:
+            playwright.stop()
 
     def fill_draft(self, draft: XimalayaDraft) -> XimalayaPublishResult:
         try:
@@ -97,26 +109,35 @@ class PlaywrightXimalayaPublisher:
 
         self.user_data_dir.mkdir(parents=True, exist_ok=True)
         try:
-            with sync_playwright() as playwright:
-                context = playwright.chromium.launch_persistent_context(
-                    str(self.user_data_dir),
-                    headless=False,
-                    accept_downloads=True,
-                )
-                page = context.pages[0] if context.pages else context.new_page()
-                page.goto(draft.upload_url, wait_until="domcontentloaded", timeout=self.timeout_ms)
-                _set_file_input(page, draft.audio_path, self.timeout_ms)
-                _fill_first_available(page, ["标题", "声音标题", "请输入标题"], draft.title, self.timeout_ms)
-                if draft.description:
-                    _fill_first_available(page, ["简介", "声音简介", "请输入简介"], draft.description, self.timeout_ms)
-                if draft.tags:
-                    _fill_tags(page, draft.tags, self.timeout_ms)
-                return XimalayaPublishResult(
-                    status="ready_for_review",
-                    message="喜马拉雅草稿已填写，请在浏览器中确认后手动发布。",
-                    draft=draft,
-                )
+            self.close()
+            self._playwright = sync_playwright().start()
+            self._browser_context = self._playwright.chromium.launch_persistent_context(
+                str(self.user_data_dir),
+                headless=False,
+                accept_downloads=True,
+            )
+            page = (
+                self._browser_context.pages[0]
+                if self._browser_context.pages
+                else self._browser_context.new_page()
+            )
+            page.goto(draft.upload_url, wait_until="domcontentloaded", timeout=self.timeout_ms)
+            _set_file_input(page, draft.audio_path, self.timeout_ms)
+            _fill_first_available(page, ["标题", "声音标题", "请输入标题"], draft.title, self.timeout_ms)
+            if draft.description:
+                _fill_first_available(page, ["简介", "声音简介", "请输入简介"], draft.description, self.timeout_ms)
+            if draft.tags:
+                _fill_tags(page, draft.tags, self.timeout_ms)
+            return XimalayaPublishResult(
+                status="ready_for_review",
+                message="喜马拉雅草稿已填写，请在浏览器中确认后手动发布。",
+                draft=draft,
+            )
+        except XimalayaPublishError:
+            self.close()
+            raise
         except PlaywrightError as exc:
+            self.close()
             raise XimalayaPublishError(f"喜马拉雅页面自动填写失败：{exc}") from exc
 
 
