@@ -38,6 +38,12 @@ from .models import Book, Chapter, Job, JobKind, JobStatus, Segment
 from .repository import Repository
 from .storage import LocalStorage, PathSafetyError, chapter_metadata
 from .text_cleaner import clean_text
+from .ximalaya_publisher import (
+    PlaywrightXimalayaPublisher,
+    XimalayaDraftError,
+    XimalayaPublishError,
+    build_ximalaya_draft,
+)
 
 
 UPLOAD_READ_CHUNK_BYTES = 64 * 1024
@@ -130,6 +136,7 @@ def create_app(
     app.state.repository = repository
     app.state.storage = storage
     app.state.runner = runner
+    app.state.ximalaya_publisher = PlaywrightXimalayaPublisher()
 
     @app.get("/api/config")
     def get_config() -> dict[str, Any]:
@@ -573,6 +580,42 @@ def create_app(
             "audio_path": audio_path,
             "download_url": f"/api/chapters/{chapter.id}/audio/download" if audio_path else None,
             "segments": [_audio_segment_dict(chapter.id, segment) for segment in segments],
+        }
+
+    @app.post("/api/chapters/{chapter_id}/publish/ximalaya/draft")
+    def publish_ximalaya_draft(chapter_id: int) -> dict[str, Any]:
+        chapter = _get_chapter_or_404(repository, chapter_id)
+        if chapter.audio_path is None:
+            raise HTTPException(status_code=400, detail="请先生成并合并章节音频。")
+        try:
+            audio_path = storage.resolve_artifact(chapter.audio_path)
+            if not audio_path.is_file():
+                raise FileNotFoundError(chapter.audio_path)
+            draft = build_ximalaya_draft(
+                chapter,
+                loaded_config.publishing,
+                audio_path,
+            )
+            result = app.state.ximalaya_publisher.fill_draft(draft)
+        except XimalayaDraftError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except FileNotFoundError as exc:
+            raise HTTPException(status_code=404, detail="audio not found") from exc
+        except (OSError, PathSafetyError) as exc:
+            raise HTTPException(status_code=404, detail="artifact not found") from exc
+        except XimalayaPublishError as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+        if isinstance(result, dict):
+            return result
+        return {
+            "status": result.status,
+            "message": result.message,
+            "album_id": result.draft.album_id,
+            "title": result.draft.title,
+            "description": result.draft.description,
+            "tags": list(result.draft.tags),
+            "upload_url": result.draft.upload_url,
         }
 
     @app.get("/api/chapters/{chapter_id}/audio/segments")
