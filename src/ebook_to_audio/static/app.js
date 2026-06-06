@@ -476,6 +476,7 @@
           <button type="button" data-translate="${chapter.id}" class="primary">将文章翻译为中文</button>
           <button type="button" data-tags="${chapter.id}">获取标签</button>
           <button type="button" data-tts="${chapter.id}">TTS</button>
+          ${chapter.audio_path ? `<button type="button" data-publish-ximalaya="${chapter.id}">发布草稿到喜马拉雅</button>` : ""}
           ${ttsJob ? `<button type="button" data-merge="${ttsJob.id}">合并音频</button>` : ""}
         </div>
         <div class="artifact-links">
@@ -808,6 +809,20 @@
     }
   }
 
+  async function publishXimalayaDraft(chapterId) {
+    try {
+      state.expandedChapters.add(chapterId);
+      renderChapters();
+      setStatus(`正在打开喜马拉雅上传草稿：章节 ${chapterId}...`);
+      const result = await api(`/api/chapters/${chapterId}/publish/ximalaya/draft`, {
+        method: "POST",
+      });
+      setStatus(result.message || "喜马拉雅草稿已填写，请在浏览器中确认后手动发布。");
+    } catch (error) {
+      setStatus(`喜马拉雅发布草稿失败：${error.message}`, "error");
+    }
+  }
+
   async function mergeAudio(jobId) {
     try {
       const response = await api(`/api/jobs/${jobId}/audio/merge`, { method: "POST" });
@@ -1078,6 +1093,8 @@
           generateChapterTags(Number(target.dataset.tags));
         } else if (target.dataset.tts) {
           ttsChapter(Number(target.dataset.tts));
+        } else if (target.dataset.publishXimalaya) {
+          publishXimalayaDraft(Number(target.dataset.publishXimalaya));
         } else if (target.dataset.merge) {
           mergeAudio(Number(target.dataset.merge));
         }
@@ -1116,6 +1133,13 @@
     filterJobsForBook,
     api,
     renderChapters,
+    publishXimalayaDraft,
+    renderChaptersForTest(input) {
+      state.book = input.book || null;
+      state.chapters = input.chapters || [];
+      state.audio = input.audio || new Map();
+      renderChapters();
+    },
   };
 
   if (typeof document !== "undefined" && document.addEventListener) {
