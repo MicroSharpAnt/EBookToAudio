@@ -282,6 +282,139 @@ def test_fill_draft_returns_manual_action_when_upload_control_unavailable(
     assert fake_manager.playwright.context.closed is False
 
 
+def test_fill_draft_retries_album_upload_url_after_bare_upload_page(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    class MissingLocator:
+        @property
+        def first(self):
+            return self
+
+        def count(self):
+            return 0
+
+    class ReadyLocator:
+        def __init__(self):
+            self.files = None
+            self.filled = []
+            self.pressed = []
+
+        @property
+        def first(self):
+            return self
+
+        def count(self):
+            return 1
+
+        def set_input_files(self, path, **_kwargs):
+            self.files = path
+
+        def fill(self, value, **_kwargs):
+            self.filled.append(value)
+
+        def press(self, key, **_kwargs):
+            self.pressed.append(key)
+
+    class FakePage:
+        def __init__(self):
+            self.goto_urls = []
+            self.file_input = ReadyLocator()
+            self.title = ReadyLocator()
+            self.description = ReadyLocator()
+            self.tags = ReadyLocator()
+
+        @property
+        def url(self):
+            return "https://studio.ximalaya.com/upload" if len(self.goto_urls) == 1 else self.goto_urls[-1]
+
+        def goto(self, url, **_kwargs):
+            self.goto_urls.append(url)
+
+        def get_by_text(self, _text, **_kwargs):
+            return MissingLocator()
+
+        def get_by_label(self, label, **_kwargs):
+            if len(self.goto_urls) < 2:
+                return MissingLocator()
+            return {"标题": self.title, "简介": self.description, "标签": self.tags}.get(
+                label,
+                MissingLocator(),
+            )
+
+        def get_by_placeholder(self, _placeholder, **_kwargs):
+            return MissingLocator()
+
+        def locator(self, selector):
+            if len(self.goto_urls) < 2:
+                return MissingLocator()
+            if selector == "input[type='file']":
+                return self.file_input
+            return MissingLocator()
+
+    class FakeBrowserContext:
+        def __init__(self):
+            self.closed = False
+            self.page = FakePage()
+            self.pages = [self.page]
+
+        def close(self):
+            self.closed = True
+
+    class FakeChromium:
+        def __init__(self, context):
+            self.context = context
+
+        def launch_persistent_context(self, *_args, **_kwargs):
+            return self.context
+
+    class FakePlaywright:
+        def __init__(self):
+            self.context = FakeBrowserContext()
+            self.chromium = FakeChromium(self.context)
+            self.stopped = False
+
+        def stop(self):
+            self.stopped = True
+
+    class FakePlaywrightManager:
+        def __init__(self):
+            self.playwright = FakePlaywright()
+
+        def start(self):
+            return self.playwright
+
+    fake_manager = FakePlaywrightManager()
+    fake_sync_api = types.ModuleType("playwright.sync_api")
+    fake_sync_api.Error = RuntimeError
+    fake_sync_api.sync_playwright = lambda: fake_manager
+    monkeypatch.setitem(sys.modules, "playwright", types.ModuleType("playwright"))
+    monkeypatch.setitem(sys.modules, "playwright.sync_api", fake_sync_api)
+
+    audio_file = tmp_path / "chapter.wav"
+    audio_file.write_bytes(b"RIFF")
+    draft = XimalayaDraft(
+        album_id="122326236",
+        upload_url="https://studio.ximalaya.com/upload?albumId=122326236",
+        audio_path=audio_file,
+        title="第一章",
+        description="简介",
+        tags=("有声书",),
+    )
+
+    publisher = PlaywrightXimalayaPublisher(user_data_dir=tmp_path / "browser", timeout_ms=1)
+    result = publisher.fill_draft(draft)
+
+    page = fake_manager.playwright.context.page
+    assert result.status == "ready_for_review"
+    assert page.goto_urls == [draft.upload_url, draft.upload_url]
+    assert page.file_input.files == str(audio_file)
+    assert page.title.filled == ["第一章"]
+    assert page.description.filled == ["简介"]
+    assert page.tags.filled == ["有声书"]
+    assert fake_manager.playwright.context.closed is False
+    assert fake_manager.playwright.stopped is False
+
+
 def test_fill_draft_closes_browser_and_raises_when_locator_probe_has_runtime_error(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):

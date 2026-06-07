@@ -124,13 +124,9 @@ class PlaywrightXimalayaPublisher:
                 if self._browser_context.pages
                 else self._browser_context.new_page()
             )
-            page.goto(draft.upload_url, wait_until="domcontentloaded", timeout=self.timeout_ms)
-            _set_file_input(page, draft.audio_path, self.timeout_ms)
-            _fill_first_available(page, ["标题", "声音标题", "请输入标题"], draft.title, self.timeout_ms)
-            if draft.description:
-                _fill_first_available(page, ["简介", "声音简介", "请输入简介"], draft.description, self.timeout_ms)
-            if draft.tags:
-                _fill_tags(page, draft.tags, self.timeout_ms)
+            _navigate_to_upload_url(page, draft.upload_url, self.timeout_ms)
+            _ensure_album_upload_url(page, draft, self.timeout_ms)
+            _fill_draft_form(page, draft, self.timeout_ms)
             return XimalayaPublishResult(
                 status="ready_for_review",
                 message="喜马拉雅草稿已填写，请在浏览器中确认后手动发布。",
@@ -145,6 +141,28 @@ class PlaywrightXimalayaPublisher:
         except PlaywrightError as exc:
             self.close()
             raise XimalayaPublishError(f"喜马拉雅页面自动填写失败：{exc}") from exc
+
+
+def _navigate_to_upload_url(page, upload_url: str, timeout_ms: int) -> None:
+    page.goto(upload_url, wait_until="domcontentloaded", timeout=timeout_ms)
+
+
+def _ensure_album_upload_url(page, draft: XimalayaDraft, timeout_ms: int) -> None:
+    current_url = str(getattr(page, "url", ""))
+    if f"albumId={draft.album_id}" in current_url:
+        return
+    if "/upload" not in current_url:
+        return
+    _navigate_to_upload_url(page, draft.upload_url, timeout_ms)
+
+
+def _fill_draft_form(page, draft: XimalayaDraft, timeout_ms: int) -> None:
+    _set_file_input(page, draft.audio_path, timeout_ms)
+    _fill_first_available(page, ["标题", "声音标题", "请输入标题"], draft.title, timeout_ms)
+    if draft.description:
+        _fill_first_available(page, ["简介", "声音简介", "请输入简介"], draft.description, timeout_ms)
+    if draft.tags:
+        _fill_tags(page, draft.tags, timeout_ms)
 
 
 def _set_file_input(page, audio_path: Path, timeout_ms: int) -> None:
