@@ -140,7 +140,14 @@ class PlaywrightXimalayaPublisher:
             )
         except PlaywrightError as exc:
             self.close()
-            raise XimalayaPublishError(f"喜马拉雅页面自动填写失败：{exc}") from exc
+            raise XimalayaPublishError(_playwright_error_message(exc)) from exc
+
+
+def _playwright_error_message(exc: Exception) -> str:
+    message = str(exc)
+    if "Executable doesn't exist" in message and "playwright install" in message:
+        return "缺少 Playwright Chromium 浏览器。请运行 uv run playwright install chromium 后重试。"
+    return f"喜马拉雅页面自动填写失败：{message}"
 
 
 def _navigate_to_upload_url(page, upload_url: str, timeout_ms: int) -> None:

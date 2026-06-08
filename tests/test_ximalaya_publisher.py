@@ -594,3 +594,55 @@ def test_missing_playwright_message_uses_main_dependency_install_command(
     assert "pip install -e ." in message
     assert "playwright install chromium" in message
     assert "[dev]" not in message
+
+
+def test_missing_playwright_browser_binary_message_uses_install_command(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    class FakePlaywrightError(Exception):
+        pass
+
+    class MissingBrowserChromium:
+        def launch_persistent_context(self, *_args, **_kwargs):
+            raise FakePlaywrightError("Executable doesn't exist at /fake/chrome\nplaywright install")
+
+    class FakePlaywright:
+        def __init__(self):
+            self.chromium = MissingBrowserChromium()
+            self.stopped = False
+
+        def stop(self):
+            self.stopped = True
+
+    class FakePlaywrightManager:
+        def __init__(self):
+            self.playwright = FakePlaywright()
+
+        def start(self):
+            return self.playwright
+
+    fake_manager = FakePlaywrightManager()
+    fake_sync_api = types.ModuleType("playwright.sync_api")
+    fake_sync_api.Error = FakePlaywrightError
+    fake_sync_api.sync_playwright = lambda: fake_manager
+    monkeypatch.setitem(sys.modules, "playwright", types.ModuleType("playwright"))
+    monkeypatch.setitem(sys.modules, "playwright.sync_api", fake_sync_api)
+
+    publisher = PlaywrightXimalayaPublisher(user_data_dir=tmp_path / "browser")
+    draft = XimalayaDraft(
+        album_id="122326236",
+        upload_url="https://studio.ximalaya.com/upload?albumId=122326236",
+        audio_path=tmp_path / "chapter.wav",
+        title="第一章",
+        description="",
+        tags=(),
+    )
+
+    with pytest.raises(XimalayaPublishError) as exc_info:
+        publisher.fill_draft(draft)
+
+    message = str(exc_info.value)
+    assert "缺少 Playwright Chromium 浏览器" in message
+    assert "uv run playwright install chromium" in message
+    assert "Executable doesn't exist" not in message
+    assert fake_manager.playwright.stopped is True
