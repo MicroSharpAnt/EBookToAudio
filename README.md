@@ -27,16 +27,22 @@ uvicorn "ebook_to_audio.web:create_app" --factory --reload
 
 ## Ximalaya Publishing
 
-If the Ximalaya login page crashes in Playwright-managed Chrome, start a regular
-Chrome instance with a debugging port first:
+If the Ximalaya login page crashes in Playwright-managed Chrome, log in with a
+regular Chrome window first:
+
+```bash
+scripts/login-ximalaya-chrome.sh
+```
+
+After logging in, quit that Chrome window. Then start the Chrome instance used
+by the publisher:
 
 ```bash
 scripts/start-ximalaya-chrome.sh
 ```
 
 Then set `publishing.ximalaya.browser_cdp_url` in `config.yaml` to
-`http://127.0.0.1:9222`, log in to Ximalaya in that Chrome window, and publish
-the draft again from the app.
+`http://127.0.0.1:9222` and publish the draft again from the app.
 
 ## Test
 
