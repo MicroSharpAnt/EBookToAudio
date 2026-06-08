@@ -605,6 +605,44 @@ publishing:
     assert app.state.ximalaya_publisher.drafts[0].audio_path.is_file()
 
 
+def test_create_app_configures_ximalaya_browser_executable(tmp_path: Path):
+    config_path = tmp_path / "config.yaml"
+    browser_path = tmp_path / "Tabbit"
+    config_path.write_text(
+        f"""
+active_translation_provider: test
+data_dir: data
+translation:
+  providers:
+    test:
+      base_url: https://example.com
+      api_key: key
+      model: model
+tts:
+  base_url: https://example.com
+  api_key: key
+  model: model
+  default_voice: 冰糖
+publishing:
+  ximalaya:
+    album_id: "122326236"
+    browser_executable_path: "{browser_path}"
+    browser_cdp_url: "http://127.0.0.1:9222"
+""",
+        encoding="utf-8",
+    )
+
+    app = create_app(
+        data_dir=tmp_path,
+        config_path=config_path,
+        autostart_jobs=False,
+        use_fake_clients=True,
+    )
+
+    assert app.state.ximalaya_publisher.system_chrome_path == browser_path
+    assert app.state.ximalaya_publisher.browser_cdp_url == "http://127.0.0.1:9222"
+
+
 def test_ximalaya_publish_endpoint_serializes_manual_action_result(tmp_path: Path):
     config_path = tmp_path / "config.yaml"
     config_path.write_text(

@@ -136,7 +136,10 @@ def create_app(
     app.state.repository = repository
     app.state.storage = storage
     app.state.runner = runner
-    app.state.ximalaya_publisher = PlaywrightXimalayaPublisher()
+    app.state.ximalaya_publisher = PlaywrightXimalayaPublisher(
+        system_chrome_path=loaded_config.publishing.browser_executable_path,
+        browser_cdp_url=loaded_config.publishing.browser_cdp_url,
+    )
 
     @app.get("/api/config")
     def get_config() -> dict[str, Any]:

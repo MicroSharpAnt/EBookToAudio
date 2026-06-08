@@ -30,6 +30,8 @@ limits:
 publishing:
   ximalaya:
     album_id: "122326236"
+    browser_executable_path: ""
+    browser_cdp_url: ""
     default_tags:
       - 有声书
     description_footer: ""

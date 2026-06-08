@@ -88,22 +88,27 @@ class PlaywrightXimalayaPublisher:
         user_data_dir: Path | None = None,
         timeout_ms: int = 120_000,
         system_chrome_path: Path | None = None,
+        browser_cdp_url: str = "",
     ):
         self.user_data_dir = user_data_dir or Path.home() / ".ebook-to-audio" / "ximalaya-browser"
         self.timeout_ms = timeout_ms
         self.system_chrome_path = system_chrome_path or Path(
             "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
         )
+        self.browser_cdp_url = browser_cdp_url.strip()
         self._playwright = None
         self._browser_context = None
+        self._external_browser = None
 
     def close(self) -> None:
         browser_context = self._browser_context
         playwright = self._playwright
+        external_browser = self._external_browser
         self._browser_context = None
         self._playwright = None
+        self._external_browser = None
         try:
-            if browser_context is not None:
+            if browser_context is not None and external_browser is None:
                 browser_context.close()
         finally:
             if playwright is not None:
@@ -147,6 +152,13 @@ class PlaywrightXimalayaPublisher:
             raise XimalayaPublishError(_playwright_error_message(exc)) from exc
 
     def _launch_persistent_context(self, playwright_error_type):
+        if self.browser_cdp_url:
+            self._external_browser = self._playwright.chromium.connect_over_cdp(
+                self.browser_cdp_url
+            )
+            if not self._external_browser.contexts:
+                return self._external_browser.new_context()
+            return self._external_browser.contexts[0]
         if self.system_chrome_path.exists():
             return self._playwright.chromium.launch_persistent_context(
                 str(self.user_data_dir),

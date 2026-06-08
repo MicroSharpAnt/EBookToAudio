@@ -63,6 +63,8 @@ class LimitsConfig:
 @dataclass(frozen=True)
 class PublishingConfig:
     ximalaya_album_id: str = ""
+    browser_executable_path: Path | None = None
+    browser_cdp_url: str = ""
     default_tags: tuple[str, ...] = ()
     description_footer: str = ""
 
@@ -114,6 +116,12 @@ class AppConfig:
             "publishing": {
                 "ximalaya": {
                     "has_album_id": bool(self.publishing.ximalaya_album_id),
+                    "browser_executable_path": (
+                        str(self.publishing.browser_executable_path)
+                        if self.publishing.browser_executable_path
+                        else ""
+                    ),
+                    "browser_cdp_url": self.publishing.browser_cdp_url,
                     "default_tags": list(self.publishing.default_tags),
                     "has_description_footer": bool(self.publishing.description_footer),
                 },
@@ -267,6 +275,20 @@ def _build_providers(raw: dict[str, Any]) -> dict[str, ProviderConfig]:
 
 def _build_publishing(raw: dict[str, Any]) -> PublishingConfig:
     ximalaya_raw = _get_mapping(raw, "ximalaya", "publishing.ximalaya", required=False)
+    browser_executable_path = _get_text(
+        ximalaya_raw,
+        "browser_executable_path",
+        "publishing.ximalaya.browser_executable_path",
+        required=False,
+        allow_empty=True,
+    )
+    browser_cdp_url = _get_text(
+        ximalaya_raw,
+        "browser_cdp_url",
+        "publishing.ximalaya.browser_cdp_url",
+        required=False,
+        allow_empty=True,
+    )
     return PublishingConfig(
         ximalaya_album_id=_get_text(
             ximalaya_raw,
@@ -275,6 +297,8 @@ def _build_publishing(raw: dict[str, Any]) -> PublishingConfig:
             required=False,
             allow_empty=True,
         ),
+        browser_executable_path=Path(browser_executable_path) if browser_executable_path else None,
+        browser_cdp_url=browser_cdp_url,
         default_tags=tuple(
             _get_text_list(
                 ximalaya_raw,

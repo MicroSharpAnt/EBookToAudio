@@ -218,6 +218,8 @@ def test_load_config_reads_publishing_section(tmp_path: Path):
 publishing:
   ximalaya:
     album_id: "122326236"
+    browser_executable_path: "/Applications/Tabbit.app/Contents/MacOS/Tabbit"
+    browser_cdp_url: "http://127.0.0.1:9222"
     default_tags:
       - 有声书
       - 中文文学
@@ -229,10 +231,17 @@ publishing:
     config = load_config(config_path)
 
     assert config.publishing.ximalaya_album_id == "122326236"
+    assert (
+        config.publishing.browser_executable_path
+        == Path("/Applications/Tabbit.app/Contents/MacOS/Tabbit")
+    )
+    assert config.publishing.browser_cdp_url == "http://127.0.0.1:9222"
     assert config.publishing.default_tags == ("有声书", "中文文学")
     assert config.publishing.description_footer == "本音频由 EBookToAudio 辅助生成。"
     assert config.safe_metadata()["publishing"]["ximalaya"] == {
         "has_album_id": True,
+        "browser_executable_path": "/Applications/Tabbit.app/Contents/MacOS/Tabbit",
+        "browser_cdp_url": "http://127.0.0.1:9222",
         "default_tags": ["有声书", "中文文学"],
         "has_description_footer": True,
     }
