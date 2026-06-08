@@ -405,7 +405,7 @@ sandbox.window.EBookToAudio.renderChaptersForTest({
   chapters: [publishChapter],
   audio: new Map([[42, { download_url: "/api/chapters/42/audio/download", segments: [] }]]),
 });
-assert(sandbox.document.querySelector("[data-publish-ximalaya='42']"));
+assert.strictEqual(sandbox.document.querySelector("[data-publish-ximalaya='42']"), null);
 assert.strictEqual(
   sandbox.window.EBookToAudio.ximalayaDraftPreflightWarning({
     id: 42,
