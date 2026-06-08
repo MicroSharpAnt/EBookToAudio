@@ -609,6 +609,127 @@ def test_fill_draft_uses_system_chrome_first_when_available(
     assert fake_manager.playwright.stopped is False
 
 
+def test_fill_draft_connects_to_existing_browser_over_cdp(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    class FakeLocator:
+        @property
+        def first(self):
+            return self
+
+        def count(self):
+            return 1
+
+        def fill(self, _value, **_kwargs):
+            pass
+
+        def press(self, _key, **_kwargs):
+            pass
+
+        def set_input_files(self, _path, **_kwargs):
+            pass
+
+    class FakePage:
+        def goto(self, _url, **_kwargs):
+            pass
+
+        def get_by_label(self, _label, **_kwargs):
+            return FakeLocator()
+
+        def get_by_placeholder(self, _placeholder, **_kwargs):
+            return FakeLocator()
+
+        def get_by_text(self, _text, **_kwargs):
+            return FakeLocator()
+
+        def locator(self, _selector):
+            return FakeLocator()
+
+    class FakeBrowserContext:
+        def __init__(self):
+            self.closed = False
+            self.pages = []
+
+        def close(self):
+            self.closed = True
+
+        def new_page(self):
+            page = FakePage()
+            self.pages.append(page)
+            return page
+
+    class FakeBrowser:
+        def __init__(self):
+            self.context = FakeBrowserContext()
+            self.contexts = [self.context]
+            self.closed = False
+
+        def close(self):
+            self.closed = True
+
+    class FakeChromium:
+        def __init__(self, browser):
+            self.browser = browser
+            self.cdp_urls = []
+            self.launches = []
+
+        def connect_over_cdp(self, url):
+            self.cdp_urls.append(url)
+            return self.browser
+
+        def launch_persistent_context(self, *_args, **kwargs):
+            self.launches.append(kwargs)
+            raise AssertionError("should connect to the existing browser")
+
+    class FakePlaywright:
+        def __init__(self):
+            self.browser = FakeBrowser()
+            self.chromium = FakeChromium(self.browser)
+            self.stopped = False
+
+        def stop(self):
+            self.stopped = True
+
+    class FakePlaywrightManager:
+        def __init__(self):
+            self.playwright = FakePlaywright()
+
+        def start(self):
+            return self.playwright
+
+    fake_manager = FakePlaywrightManager()
+    fake_sync_api = types.ModuleType("playwright.sync_api")
+    fake_sync_api.Error = RuntimeError
+    fake_sync_api.sync_playwright = lambda: fake_manager
+    monkeypatch.setitem(sys.modules, "playwright", types.ModuleType("playwright"))
+    monkeypatch.setitem(sys.modules, "playwright.sync_api", fake_sync_api)
+
+    audio_file = tmp_path / "chapter.wav"
+    audio_file.write_bytes(b"RIFF")
+    draft = XimalayaDraft(
+        album_id="122326236",
+        upload_url="https://studio.ximalaya.com/upload?albumId=122326236",
+        audio_path=audio_file,
+        title="第一章",
+        description="简介",
+        tags=("有声书",),
+    )
+
+    publisher = PlaywrightXimalayaPublisher(
+        user_data_dir=tmp_path / "browser",
+        browser_cdp_url="http://127.0.0.1:9222",
+    )
+    result = publisher.fill_draft(draft)
+    publisher.close()
+
+    assert result.status == "ready_for_review"
+    assert fake_manager.playwright.chromium.cdp_urls == ["http://127.0.0.1:9222"]
+    assert fake_manager.playwright.chromium.launches == []
+    assert fake_manager.playwright.browser.context.closed is False
+    assert fake_manager.playwright.browser.closed is False
+    assert fake_manager.playwright.stopped is True
+
+
 def test_fill_first_available_waits_for_late_rendered_control():
     class FakeLocator:
         def __init__(self, counts):
