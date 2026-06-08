@@ -497,6 +497,122 @@ def test_fill_draft_closes_browser_and_raises_when_locator_probe_has_runtime_err
     assert fake_manager.playwright.context.closed is True
 
 
+def test_fill_draft_retries_with_system_chrome_when_bundled_chromium_crashes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    class FakePlaywrightError(Exception):
+        pass
+
+    class FakeLocator:
+        @property
+        def first(self):
+            return self
+
+        def count(self):
+            return 1
+
+        def fill(self, _value, **_kwargs):
+            pass
+
+        def press(self, _key, **_kwargs):
+            pass
+
+        def set_input_files(self, _path, **_kwargs):
+            pass
+
+    class FakePage:
+        def goto(self, _url, **_kwargs):
+            pass
+
+        def get_by_label(self, _label, **_kwargs):
+            return FakeLocator()
+
+        def get_by_placeholder(self, _placeholder, **_kwargs):
+            return FakeLocator()
+
+        def get_by_text(self, _text, **_kwargs):
+            return FakeLocator()
+
+        def locator(self, _selector):
+            return FakeLocator()
+
+    class FakeBrowserContext:
+        def __init__(self):
+            self.closed = False
+            self.pages = [FakePage()]
+
+        def close(self):
+            self.closed = True
+
+    class FakeChromium:
+        def __init__(self, context):
+            self.context = context
+            self.launches = []
+
+        def launch_persistent_context(self, *_args, **kwargs):
+            self.launches.append(kwargs)
+            if "executable_path" not in kwargs:
+                raise FakePlaywrightError(
+                    "Target page, context or browser has been closed\n"
+                    "Received signal 10 BUS_ADRALN"
+                )
+            return self.context
+
+    class FakePlaywright:
+        def __init__(self):
+            self.context = FakeBrowserContext()
+            self.chromium = FakeChromium(self.context)
+            self.stopped = False
+
+        def stop(self):
+            self.stopped = True
+
+    class FakePlaywrightManager:
+        def __init__(self):
+            self.playwright = FakePlaywright()
+
+        def start(self):
+            return self.playwright
+
+    fake_manager = FakePlaywrightManager()
+    fake_sync_api = types.ModuleType("playwright.sync_api")
+    fake_sync_api.Error = FakePlaywrightError
+    fake_sync_api.sync_playwright = lambda: fake_manager
+    monkeypatch.setitem(sys.modules, "playwright", types.ModuleType("playwright"))
+    monkeypatch.setitem(sys.modules, "playwright.sync_api", fake_sync_api)
+
+    system_chrome = tmp_path / "Google Chrome"
+    system_chrome.write_text("")
+    audio_file = tmp_path / "chapter.wav"
+    audio_file.write_bytes(b"RIFF")
+    draft = XimalayaDraft(
+        album_id="122326236",
+        upload_url="https://studio.ximalaya.com/upload?albumId=122326236",
+        audio_path=audio_file,
+        title="第一章",
+        description="简介",
+        tags=("有声书",),
+    )
+
+    publisher = PlaywrightXimalayaPublisher(
+        user_data_dir=tmp_path / "browser",
+        system_chrome_path=system_chrome,
+    )
+    result = publisher.fill_draft(draft)
+
+    assert result.status == "ready_for_review"
+    assert fake_manager.playwright.chromium.launches == [
+        {"headless": False, "accept_downloads": True},
+        {
+            "headless": False,
+            "accept_downloads": True,
+            "executable_path": str(system_chrome),
+        },
+    ]
+    assert fake_manager.playwright.context.closed is False
+    assert fake_manager.playwright.stopped is False
+
+
 def test_fill_first_available_waits_for_late_rendered_control():
     class FakeLocator:
         def __init__(self, counts):
