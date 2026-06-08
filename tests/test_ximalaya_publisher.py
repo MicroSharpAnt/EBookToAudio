@@ -497,7 +497,7 @@ def test_fill_draft_closes_browser_and_raises_when_locator_probe_has_runtime_err
     assert fake_manager.playwright.context.closed is True
 
 
-def test_fill_draft_retries_with_system_chrome_when_bundled_chromium_crashes(
+def test_fill_draft_uses_system_chrome_first_when_available(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
     class FakePlaywrightError(Exception):
@@ -552,10 +552,7 @@ def test_fill_draft_retries_with_system_chrome_when_bundled_chromium_crashes(
         def launch_persistent_context(self, *_args, **kwargs):
             self.launches.append(kwargs)
             if "executable_path" not in kwargs:
-                raise FakePlaywrightError(
-                    "Target page, context or browser has been closed\n"
-                    "Received signal 10 BUS_ADRALN"
-                )
+                raise FakePlaywrightError("bundled Chromium should not be launched")
             return self.context
 
     class FakePlaywright:
@@ -602,7 +599,6 @@ def test_fill_draft_retries_with_system_chrome_when_bundled_chromium_crashes(
 
     assert result.status == "ready_for_review"
     assert fake_manager.playwright.chromium.launches == [
-        {"headless": False, "accept_downloads": True},
         {
             "headless": False,
             "accept_downloads": True,

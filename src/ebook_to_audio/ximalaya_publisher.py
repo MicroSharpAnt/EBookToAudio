@@ -147,6 +147,13 @@ class PlaywrightXimalayaPublisher:
             raise XimalayaPublishError(_playwright_error_message(exc)) from exc
 
     def _launch_persistent_context(self, playwright_error_type):
+        if self.system_chrome_path.exists():
+            return self._playwright.chromium.launch_persistent_context(
+                str(self.user_data_dir),
+                headless=False,
+                accept_downloads=True,
+                executable_path=str(self.system_chrome_path),
+            )
         try:
             return self._playwright.chromium.launch_persistent_context(
                 str(self.user_data_dir),
