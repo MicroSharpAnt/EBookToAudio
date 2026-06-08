@@ -135,6 +135,7 @@ class PlaywrightXimalayaPublisher:
             )
             _navigate_to_upload_url(page, draft.upload_url, self.timeout_ms)
             _ensure_album_upload_url(page, draft, self.timeout_ms)
+            _ensure_not_login_page(page)
             _fill_draft_form(page, draft, self.timeout_ms)
             return XimalayaPublishResult(
                 status="ready_for_review",
@@ -148,6 +149,15 @@ class PlaywrightXimalayaPublisher:
                 draft=draft,
             )
         except PlaywrightError as exc:
+            if self._browser_context is not None:
+                return XimalayaPublishResult(
+                    status="manual_action_required",
+                    message=(
+                        f"{_playwright_error_message(exc)} "
+                        "请在已打开的浏览器中完成登录、验证或手动恢复后重试。"
+                    ),
+                    draft=draft,
+                )
             self.close()
             raise XimalayaPublishError(_playwright_error_message(exc)) from exc
 
@@ -209,6 +219,13 @@ def _ensure_album_upload_url(page, draft: XimalayaDraft, timeout_ms: int) -> Non
     if "/upload" not in current_url:
         return
     _navigate_to_upload_url(page, draft.upload_url, timeout_ms)
+
+
+def _ensure_not_login_page(page) -> None:
+    current_url = str(getattr(page, "url", "")).lower()
+    login_markers = ("passport.ximalaya.com", "/login", "sso", "auth")
+    if any(marker in current_url for marker in login_markers):
+        raise XimalayaPublishError("喜马拉雅需要先登录账号。")
 
 
 def _fill_draft_form(page, draft: XimalayaDraft, timeout_ms: int) -> None:
