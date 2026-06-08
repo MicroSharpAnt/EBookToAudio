@@ -495,7 +495,6 @@
           <button type="button" data-translate="${chapter.id}" class="primary">将文章翻译为中文</button>
           <button type="button" data-tags="${chapter.id}">获取标签</button>
           <button type="button" data-tts="${chapter.id}">TTS</button>
-          ${chapter.audio_path ? `<button type="button" data-publish-ximalaya="${chapter.id}">发布草稿到喜马拉雅</button>` : ""}
           ${ttsJob ? `<button type="button" data-merge="${ttsJob.id}">合并音频</button>` : ""}
         </div>
         <div class="artifact-links">
