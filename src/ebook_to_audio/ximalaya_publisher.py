@@ -83,9 +83,17 @@ def _dedupe_tags(values: list[str]) -> list[str]:
 
 
 class PlaywrightXimalayaPublisher:
-    def __init__(self, user_data_dir: Path | None = None, timeout_ms: int = 120_000):
+    def __init__(
+        self,
+        user_data_dir: Path | None = None,
+        timeout_ms: int = 120_000,
+        system_chrome_path: Path | None = None,
+    ):
         self.user_data_dir = user_data_dir or Path.home() / ".ebook-to-audio" / "ximalaya-browser"
         self.timeout_ms = timeout_ms
+        self.system_chrome_path = system_chrome_path or Path(
+            "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+        )
         self._playwright = None
         self._browser_context = None
 
@@ -114,11 +122,7 @@ class PlaywrightXimalayaPublisher:
         try:
             self.close()
             self._playwright = sync_playwright().start()
-            self._browser_context = self._playwright.chromium.launch_persistent_context(
-                str(self.user_data_dir),
-                headless=False,
-                accept_downloads=True,
-            )
+            self._browser_context = self._launch_persistent_context(PlaywrightError)
             page = (
                 self._browser_context.pages[0]
                 if self._browser_context.pages
@@ -142,12 +146,37 @@ class PlaywrightXimalayaPublisher:
             self.close()
             raise XimalayaPublishError(_playwright_error_message(exc)) from exc
 
+    def _launch_persistent_context(self, playwright_error_type):
+        try:
+            return self._playwright.chromium.launch_persistent_context(
+                str(self.user_data_dir),
+                headless=False,
+                accept_downloads=True,
+            )
+        except playwright_error_type as exc:
+            if not _should_retry_with_system_chrome(exc) or not self.system_chrome_path.exists():
+                raise
+            return self._playwright.chromium.launch_persistent_context(
+                str(self.user_data_dir),
+                headless=False,
+                accept_downloads=True,
+                executable_path=str(self.system_chrome_path),
+            )
+
 
 def _playwright_error_message(exc: Exception) -> str:
     message = str(exc)
     if "Executable doesn't exist" in message and "playwright install" in message:
         return "缺少 Playwright Chromium 浏览器。请运行 uv run playwright install chromium 后重试。"
     return f"喜马拉雅页面自动填写失败：{message}"
+
+
+def _should_retry_with_system_chrome(exc: Exception) -> bool:
+    message = str(exc)
+    return (
+        "Target page, context or browser has been closed" in message
+        and ("Received signal" in message or "process did exit" in message)
+    )
 
 
 def _navigate_to_upload_url(page, upload_url: str, timeout_ms: int) -> None:
