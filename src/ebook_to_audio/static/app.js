@@ -462,6 +462,7 @@
       paragraphs,
     )} 段落`;
     state.chapters.forEach((chapter) => list.appendChild(chapterCard(chapter, state.chapters.length)));
+    loadAudioWaveforms(list);
   }
 
   function chapterCard(chapter, chapterCount) {
@@ -606,9 +607,18 @@
     }
     const mergedMarkup = hasMergedAudio
       ? `<div class="chapter-audio-player">
-          <div>
-            <strong>合并音频</strong>
-            <p class="meta">优先试听整章音频</p>
+          <div class="chapter-audio-main">
+            <div>
+              <strong>合并音频</strong>
+              <p class="meta">优先试听整章音频</p>
+            </div>
+            <canvas
+              class="audio-waveform"
+              data-waveform-url="/api/chapters/${chapter.id}/audio/waveform"
+              width="600"
+              height="72"
+              aria-label="合成音频波形图"
+            ></canvas>
           </div>
           <audio controls preload="none" src="${escapeHtml(mergedUrl)}"></audio>
           <a class="button-link" href="${escapeHtml(mergedUrl)}">下载 WAV</a>
@@ -622,6 +632,49 @@
         </details>`
       : "";
     return `<div class="chapter-audio-panel">${mergedMarkup}${segmentMarkup}</div>`;
+  }
+
+  function loadAudioWaveforms(root = document) {
+    const canvases = Array.from(root.querySelectorAll ? root.querySelectorAll(".audio-waveform[data-waveform-url]") : []);
+    canvases.forEach((canvas) => {
+      if (canvas.dataset.waveformLoaded) {
+        return;
+      }
+      canvas.dataset.waveformLoaded = "1";
+      fetch(canvas.dataset.waveformUrl)
+        .then((response) => (response.ok ? response.json() : null))
+        .then((waveform) => {
+          if (waveform && Array.isArray(waveform.peaks)) {
+            drawWaveform(canvas, waveform.peaks);
+          }
+        })
+        .catch(() => {
+          canvas.dataset.waveformLoaded = "";
+        });
+    });
+  }
+
+  function drawWaveform(canvas, peaks) {
+    const context = canvas.getContext && canvas.getContext("2d");
+    if (!context || !peaks.length) {
+      return;
+    }
+    const width = canvas.width;
+    const height = canvas.height;
+    const middle = height / 2;
+    context.clearRect(0, 0, width, height);
+    context.fillStyle = "#f4f6f6";
+    context.fillRect(0, 0, width, height);
+    context.strokeStyle = "#2f6f73";
+    context.lineWidth = Math.max(1, width / peaks.length);
+    peaks.forEach((peak, index) => {
+      const x = (index / Math.max(1, peaks.length - 1)) * width;
+      const amplitude = Math.max(1, Number(peak || 0) * (height / 2 - 4));
+      context.beginPath();
+      context.moveTo(x, middle - amplitude);
+      context.lineTo(x, middle + amplitude);
+      context.stroke();
+    });
   }
 
   function latestJobForChapter(chapterId, kind) {
