@@ -25,6 +25,24 @@ For existing installs, keep `limits.max_upload_bytes` at `20971520` or higher to
 uvicorn "ebook_to_audio.web:create_app" --factory --reload
 ```
 
+## Docker
+
+Create the local runtime config first:
+
+```bash
+cp config.example.yaml config.yaml
+```
+
+Edit `config.yaml`, then start the app:
+
+```bash
+docker compose up --build
+```
+
+Open `http://localhost:8000`. The compose file mounts `config.yaml` and `data/`
+from the host so API keys, the SQLite database, generated text, and audio files
+survive container rebuilds.
+
 ## Ximalaya Publishing
 
 If the Ximalaya login page crashes in Playwright-managed Chrome, log in with a
