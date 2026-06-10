@@ -487,9 +487,23 @@ textarea {
 
 .chapter-audio-player {
   display: grid;
-  grid-template-columns: minmax(120px, 180px) minmax(220px, 1fr) auto;
+  grid-template-columns: minmax(180px, 260px) minmax(220px, 1fr) auto;
   align-items: center;
   gap: 10px;
+}
+
+.chapter-audio-main {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.audio-waveform {
+  width: 100%;
+  height: 56px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: #f4f6f6;
 }
 
 .chapter-audio-player audio {
@@ -701,6 +715,10 @@ textarea {
   }
 
   .segment-player {
+    grid-template-columns: 1fr;
+  }
+
+  .chapter-audio-player {
     grid-template-columns: 1fr;
   }
 

@@ -320,6 +320,7 @@ const chapterAudioMarkup = sandbox.window.EBookToAudio.renderChapterAudioPanel(
 );
 assert(chapterAudioMarkup.includes("chapter-audio-player"));
 assert(chapterAudioMarkup.includes("合并音频"));
+assert(chapterAudioMarkup.includes('data-waveform-url="/api/chapters/3/audio/waveform"'));
 assert(chapterAudioMarkup.includes('src="/api/chapters/3/audio/download"'));
 assert(chapterAudioMarkup.includes("<details"));
 assert(chapterAudioMarkup.includes("查看片段音频 (1)"));

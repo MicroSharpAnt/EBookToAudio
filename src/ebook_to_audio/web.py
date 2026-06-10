@@ -671,6 +671,20 @@ def create_app(
             media_type="audio/wav",
         )
 
+    @app.get("/api/chapters/{chapter_id}/audio/waveform")
+    def audio_waveform(chapter_id: int) -> dict[str, Any]:
+        chapter = _get_chapter_or_404(repository, chapter_id)
+        if chapter.audio_path is None:
+            raise HTTPException(status_code=404, detail="audio not found")
+        try:
+            audio_path = storage.resolve_artifact(chapter.audio_path)
+        except (OSError, PathSafetyError) as exc:
+            raise HTTPException(status_code=404, detail="audio not found") from exc
+        waveform = runner.audio_builder.waveform(audio_path)
+        if waveform is None:
+            raise HTTPException(status_code=422, detail="waveform unavailable")
+        return waveform
+
     @app.get("/api/chapters/{chapter_id}/audio/segments/{segment_id}/download")
     def download_segment_audio(chapter_id: int, segment_id: int) -> FileResponse:
         chapter = _get_chapter_or_404(repository, chapter_id)

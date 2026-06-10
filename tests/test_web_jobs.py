@@ -241,6 +241,10 @@ def test_tts_endpoint_exposes_segment_audio_and_book_zip(tmp_path: Path):
     segment_download = client.get(segments[0]["download_url"])
     assert segment_download.status_code == 200
     assert segment_download.content.startswith(b"RIFF")
+    waveform = client.get(f"/api/chapters/{chapter_id}/audio/waveform")
+    assert waveform.status_code == 200
+    assert waveform.json()["peaks"]
+    assert waveform.json()["duration_seconds"] > 0
 
     book_audio = client.get(f"/api/books/{book_id}/audio/download.zip")
     assert book_audio.status_code == 200

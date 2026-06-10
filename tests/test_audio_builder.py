@@ -7,7 +7,7 @@ from zipfile import ZipFile
 import pytest
 
 from ebook_to_audio import audio_builder
-from ebook_to_audio.audio_builder import AudioBuilder
+from ebook_to_audio.audio_builder import AudioBuilder, wav_waveform
 
 
 def test_audio_builder_without_ffmpeg_merges_compatible_wav_files(tmp_path: Path, monkeypatch):
@@ -21,6 +21,48 @@ def test_audio_builder_without_ffmpeg_merges_compatible_wav_files(tmp_path: Path
     assert output == tmp_path / "out.wav"
     with wave.open(str(output), "rb") as merged:
         assert merged.getnframes() == 10
+
+
+def test_audio_builder_collapses_long_silence_before_merge(tmp_path: Path, monkeypatch):
+    monkeypatch.setattr(audio_builder.shutil, "which", lambda _name: None)
+    source = _write_pattern_wav(
+        tmp_path / "silent-gap.wav",
+        [1000] * 800 + [0] * 24_000 + [1000] * 800,
+    )
+    builder = AudioBuilder(ffmpeg_path=None)
+
+    output = builder.merge_audio([source], tmp_path / "out.wav")
+
+    assert output == tmp_path / "out.wav"
+    with wave.open(str(output), "rb") as merged:
+        assert merged.getnframes() == 11_200
+
+
+def test_audio_builder_keeps_short_silence_before_merge(tmp_path: Path, monkeypatch):
+    monkeypatch.setattr(audio_builder.shutil, "which", lambda _name: None)
+    source = _write_pattern_wav(
+        tmp_path / "short-gap.wav",
+        [1000] * 800 + [0] * 4_000 + [1000] * 800,
+    )
+    builder = AudioBuilder(ffmpeg_path=None)
+
+    output = builder.merge_audio([source], tmp_path / "out.wav")
+
+    assert output == tmp_path / "out.wav"
+    with wave.open(str(output), "rb") as merged:
+        assert merged.getnframes() == 5_600
+
+
+def test_wav_waveform_returns_normalized_peaks(tmp_path: Path):
+    source = _write_pattern_wav(tmp_path / "waveform.wav", [0] * 4 + [16_384] * 4)
+
+    waveform = wav_waveform(source, buckets=2)
+
+    assert waveform == {
+        "sample_rate": 8000,
+        "duration_seconds": 0.001,
+        "peaks": [0.0, 0.5],
+    }
 
 
 def test_audio_builder_with_invalid_ffmpeg_path_returns_none(tmp_path: Path):
@@ -65,4 +107,13 @@ def _write_wav(path: Path, frames: int) -> Path:
         wav.setsampwidth(2)
         wav.setframerate(8000)
         wav.writeframes(b"\x00\x00" * frames)
+    return path
+
+
+def _write_pattern_wav(path: Path, samples: list[int]) -> Path:
+    with wave.open(str(path), "wb") as wav:
+        wav.setnchannels(1)
+        wav.setsampwidth(2)
+        wav.setframerate(8000)
+        wav.writeframes(b"".join(sample.to_bytes(2, "little", signed=True) for sample in samples))
     return path
